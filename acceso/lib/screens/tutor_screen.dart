@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import '../service/api_service.dart';
 import '../service/session_wrapper.dart';
-import 'materias.dart'; 
+import 'materias.dart';
+import 'justificantes_tutor_screen.dart'; // Import agregado
 
 class TutorScreen extends StatefulWidget {
   final String userId;
@@ -22,11 +23,13 @@ class _TutorScreenState extends State<TutorScreen> {
   List<Map<String, dynamic>> _grupos = [];
   bool _isLoading = true;
   String? _errorMessage;
+  int _justificantesPendientes = 0; // Contador de justificantes pendientes
 
   @override
   void initState() {
     super.initState();
     _loadGrupos();
+    _cargarContadorJustificantes(); // Cargar contador al iniciar
   }
 
   Future<void> _loadGrupos() async {
@@ -54,6 +57,13 @@ class _TutorScreenState extends State<TutorScreen> {
     }
   }
 
+  // Método para cargar el contador de justificantes pendientes
+  Future<void> _cargarContadorJustificantes() async {
+    final count = await _apiService
+        .contarJustificantesPendientesTutor(widget.userId);
+    if (mounted) setState(() => _justificantesPendientes = count);
+  }
+
   @override
   Widget build(BuildContext context) {
     return SessionWrapper(
@@ -70,6 +80,48 @@ class _TutorScreenState extends State<TutorScreen> {
           backgroundColor: const Color(0xFF004C8C),
           elevation: 0,
           iconTheme: const IconThemeData(color: Colors.white),
+          actions: [
+            // Botón de justificantes con contador
+            Stack(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.description, color: Colors.white),
+                  tooltip: 'Ver justificantes',
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => JustificantesTutorScreen(
+                          tutorId: widget.userId,
+                          nombreTutor: widget.nombre,
+                        ),
+                      ),
+                    ).then((_) => _cargarContadorJustificantes());
+                  },
+                ),
+                if (_justificantesPendientes > 0)
+                  Positioned(
+                    right: 8,
+                    top: 8,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFFF9800),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        '$_justificantesPendientes',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
         ),
         body: Column(
           children: [
@@ -270,4 +322,4 @@ class _TutorScreenState extends State<TutorScreen> {
       ),
     );
   }
-}
+} 

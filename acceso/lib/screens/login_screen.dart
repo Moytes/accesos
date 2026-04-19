@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'alumnos.dart';
 import 'homeprofesor.dart';
 import 'admin_screen.dart';
+import 'admin_panel_screen.dart';  // IMPORT AGREGADO
 import '../service/api_service.dart';
+import 'seguridad_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -66,11 +68,31 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
             );
-          }else if (rol == 'Admin') {
+          } else if (rol == 'Admin') {
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
                 builder: (context) => AdminScreen(
+                  userId: userId,
+                  nombre: nombre,
+                ),
+              ),
+            );
+          } else if (rol == 'Administrativo') {  
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => AdminPanelScreen(
+                  userId: userId,
+                  nombre: nombre,
+                ),
+              ),
+            );
+          } else if (rol == 'Seguridad') {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => SeguridadScreen(
                   userId: userId,
                   nombre: nombre,
                 ),

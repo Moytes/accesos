@@ -5,6 +5,7 @@ import 'asistencia_materia.dart';
 import '../service/session_wrapper.dart';
 import '../service/session_service.dart';
 import '../service/api_service.dart';
+import 'justificantes_alumno_screen.dart';
 
 class AsistenciasScreen extends StatefulWidget {  
   final String userId;
@@ -197,6 +198,10 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
                           padding: const EdgeInsets.all(16),
                           child: Column(
                             children: [
+                              // Botón de justificaciones (UN SOLO BOTÓN)
+                              _buildJustificantesButton(),
+                              const SizedBox(height: 16),
+                              
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
@@ -269,6 +274,65 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
                         ),
                       ),
                     ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildJustificantesButton() {
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => JustificantesAlumnoScreen(
+              userId: widget.userId,
+            ),
+          ),
+        );
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF003366), Color(0xFF0055A0)],
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+          ),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF003366).withOpacity(0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: const [
+            Icon(
+              Icons.description_outlined,
+              color: Colors.white,
+              size: 22,
+            ),
+            SizedBox(width: 12),
+            Text(
+              'Ver mis justificantes',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            SizedBox(width: 8),
+            Icon(
+              Icons.arrow_forward_ios,
+              color: Colors.white,
+              size: 16,
             ),
           ],
         ),

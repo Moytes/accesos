@@ -340,6 +340,14 @@ class _UsersScreenState extends State<UsersScreen> {
         roleColor = Colors.orange;
         roleIcon = Icons.support_agent;
         break;
+      case 'administrativo':
+        roleColor = Colors.purple;
+        roleIcon = Icons.business_center;
+        break;
+      case 'seguridad':
+        roleColor = Colors.teal;
+        roleIcon = Icons.security;
+        break;
       case 'alumno':
       default:
         roleColor = Colors.green;
@@ -634,6 +642,8 @@ class _UsersScreenState extends State<UsersScreen> {
                       DropdownMenuItem(value: 'profesor', child: Text('Profesor')),
                       DropdownMenuItem(value: 'tutor', child: Text('Tutor')),
                       DropdownMenuItem(value: 'admin', child: Text('Admin')),
+                      DropdownMenuItem(value: 'administrativo', child: Text('Administrativo')),
+                      DropdownMenuItem(value: 'seguridad', child: Text('Seguridad')),
                     ],
                     onChanged: (value) {
                       if (value != null) {
@@ -847,6 +857,8 @@ class _UsersScreenState extends State<UsersScreen> {
                       DropdownMenuItem(value: 'profesor', child: Text('Profesor')),
                       DropdownMenuItem(value: 'tutor', child: Text('Tutor')),
                       DropdownMenuItem(value: 'admin', child: Text('Admin')),
+                      DropdownMenuItem(value: 'administrativo', child: Text('Administrativo')),
+                      DropdownMenuItem(value: 'seguridad', child: Text('Seguridad')),
                     ],
                     onChanged: (value) {
                       if (value != null) {

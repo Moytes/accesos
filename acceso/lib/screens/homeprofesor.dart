@@ -6,6 +6,8 @@ import '../service/session_service.dart';
 import '../service/api_service.dart';
 import 'tutor_screen.dart';
 import 'grupos_screen.dart';
+import 'justificantes_profesor_screen.dart';
+import 'pedir_salon_screen.dart';
 
 class ProfessorDashboard extends StatefulWidget {
   final String userId;
@@ -174,6 +176,67 @@ class _ProfessorDashboardState extends State<ProfessorDashboard> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // ── Botón pedir salón ──────────────────────────────
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => PedirSalonScreen(
+                              profesorId: widget.userId,
+                              nombreProfesor: widget.nombre ?? 'Profesor',
+                            ),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF004C8C), Color(0xFF1976D2)],
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF004C8C).withOpacity(0.35),
+                              blurRadius: 8,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          children: const [
+                            Icon(Icons.meeting_room_outlined, color: Colors.white, size: 22),
+                            SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Solicitar salón',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  Text(
+                                    'Ver salones disponibles y hacer una reservación',
+                                    style: TextStyle(color: Colors.white70, fontSize: 11),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Icon(Icons.arrow_forward_ios, color: Colors.white, size: 16),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    // ── Título materias ─────────────────────────────────
                     const Text(
                       'Materias que impartes',
                       style: TextStyle(
@@ -453,61 +516,158 @@ class _ProfessorDashboardState extends State<ProfessorDashboard> {
   }
 
   Widget _buildMateriaCard(Map<String, dynamic> materia) {
-    return InkWell(
-      onTap: () {
-        print("\n=== NAVEGANDO A GRUPOS ===");
-        print("Materia ID (tabla materias): ${materia['id']}");
-        print("Materia Nombre: ${materia['nombre']}");
-        
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => GruposScreen(
-              materiaId: materia['id'], // ID de la tabla materias
-              materiaNombre: materia['nombre'],
-            ),
-          ),
-        );
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
+  return Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.08),
+          blurRadius: 8,
+          offset: const Offset(0, 2),
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(
-              child: Text(
-                materia['nombre'] ?? 'Sin nombre',
-                style: const TextStyle(
-                  color: Color(0xFF004C8C),
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Título de la materia (clickeable)
+        InkWell(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => GruposScreen(
+                  materiaId: materia['id'],
+                  materiaNombre: materia['nombre'],
                 ),
-                overflow: TextOverflow.ellipsis,
-                maxLines: 2,
               ),
-            ),
-            const SizedBox(width: 8),
-            const Icon(
-              Icons.arrow_forward_ios,
-              color: Color(0xFF004C8C),
-              size: 20,
-            ),
-          ],
+            );
+          },
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  materia['nombre'] ?? 'Sin nombre',
+                  style: const TextStyle(
+                    color: Color(0xFF004C8C),
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 2,
+                ),
+              ),
+              const Icon(
+                Icons.arrow_forward_ios,
+                color: Color(0xFF004C8C),
+                size: 20,
+              ),
+            ],
+          ),
         ),
-      ),
-    );
-  }
+        const SizedBox(height: 12),
+
+        // ── Botón justificantes con contador ──
+        FutureBuilder<int>(
+          future: _apiService.getClaseIdAndCount(materia['id']),
+          builder: (context, snapshot) {
+            final count = snapshot.data ?? 0;
+            final hasCount = count > 0;
+
+            return GestureDetector(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => JustificantesProfesorScreen(
+                      profesorId: widget.userId,
+                      claseId: materia['id'],
+                      materiaNombre: materia['nombre'] ?? 'Sin nombre',
+                      grupo: '',
+                    ),
+                  ),
+                );
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: hasCount
+                      ? const Color(0xFFFF9800).withOpacity(0.08)
+                      : Colors.grey[50],
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: hasCount
+                        ? const Color(0xFFFF9800)
+                        : const Color(0xFF004C8C).withOpacity(0.3),
+                    width: hasCount ? 1.5 : 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.description_outlined,
+                      color: hasCount
+                          ? const Color(0xFFFF9800)
+                          : const Color(0xFF004C8C),
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Justificantes',
+                      style: TextStyle(
+                        color: hasCount
+                            ? const Color(0xFFFF9800)
+                            : const Color(0xFF004C8C),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (hasCount) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFF9800),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '$count',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (snapshot.connectionState ==
+                        ConnectionState.waiting) ...[
+                      const SizedBox(width: 8),
+                      const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 1.5,
+                          color: Color(0xFF004C8C),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    ),
+  );
+}
 
   Widget _buildEmptyState() {
     return Center(
