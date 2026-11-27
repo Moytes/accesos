@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
-import 'qralumnos.dart';
+import '../navigation/role_router.dart';
+import '../service/api_service.dart';
+import '../service/session_service.dart';
+import '../service/session_wrapper.dart';
+import '../widgets/common_widgets.dart';
+import 'entradas_salidas.dart';
+import 'gestion_institucional_screen.dart';
+import 'noticias_screen.dart';
 import 'profile_screen.dart';
+import 'qralumnos.dart';
 import 'registrar_visita_screen.dart';
 import 'visitas_screen.dart';
-import '../service/session_wrapper.dart';
-import '../service/session_service.dart';
-import '../service/api_service.dart';
 
 class AdminPanelScreen extends StatefulWidget {
   final String userId;
@@ -35,7 +40,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
   @override
   void dispose() {
-    _sessionService.endSession();
+    if (!_sessionService.isSessionActive) {
+      _sessionService.endSession();
+    }
     super.dispose();
   }
 
@@ -220,7 +227,68 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 12),
+
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildActionCard(
+                                icon: Icons.account_balance_outlined,
+                                label: 'Gestión\nInstitucional',
+                                color: const Color(0xFF003366),
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) =>
+                                          const GestionInstitucionalScreen(),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _buildActionCard(
+                                icon: Icons.swap_vert_circle_outlined,
+                                label: 'Entradas\ny Salidas',
+                                color: const Color(0xFF1976D2),
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) =>
+                                          const EntradasSalidasScreen(),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      const NoticiasFeedScreen(),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.newspaper_outlined),
+                            label: const Text('Noticias Institucionales'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF003366),
+                              side: const BorderSide(color: Color(0xFF003366)),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
 
                         // Info card
                         _buildInfoCard(),
@@ -386,33 +454,12 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   Widget _buildHeader(BuildContext context) {
     return Stack(
       children: [
-        Container(
+        const SafeHeaderBanner(
           height: 280,
-          decoration: BoxDecoration(
-            image: DecorationImage(
-              image: NetworkImage(
-                'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR86wguF7Jnm9XV-S7qtwyVHxKi3BBA792Lgw&s',
-              ),
-              fit: BoxFit.cover,
-              colorFilter: ColorFilter.mode(
-                Colors.black.withOpacity(0.3),
-                BlendMode.darken,
-              ),
-            ),
-          ),
-        ),
-        Container(
-          height: 280,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                const Color(0xFF003366).withOpacity(0.8),
-                const Color(0xFF003366).withOpacity(0.4),
-              ],
-            ),
-          ),
+          gradientColors: [
+            Color(0xCC003366),
+            Color(0x66003366),
+          ],
         ),
         SafeArea(
           child: Column(
@@ -436,6 +483,11 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     ),
                     Row(
                       children: [
+                        RoleSwitcherButton(
+                          currentRole: 'administrativo',
+                          userId: widget.userId,
+                          nombre: widget.nombre,
+                        ),
                         IconButton(
                           onPressed: () {
                             Navigator.push(

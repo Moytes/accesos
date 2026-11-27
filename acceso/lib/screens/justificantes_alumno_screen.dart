@@ -1,28 +1,32 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 import '../service/api_service.dart';
+import '../service/app_permissions_service.dart';
+import '../service/connectivity_service.dart';
+import '../service/session_wrapper.dart';
+import '../theme/app_colors.dart';
+import '../widgets/common_widgets.dart';
 
-// ============================================================
-// PANTALLA PRINCIPAL DE JUSTIFICANTES PARA EL ALUMNO
-// ============================================================
 class JustificantesAlumnoScreen extends StatefulWidget {
   final String userId;
+
   const JustificantesAlumnoScreen({
-    Key? key,
+    super.key,
     required this.userId,
-  }) : super(key: key);
+  });
 
   @override
   State<JustificantesAlumnoScreen> createState() =>
       _JustificantesAlumnoScreenState();
 }
 
-class _JustificantesAlumnoScreenState
-    extends State<JustificantesAlumnoScreen> {
+class _JustificantesAlumnoScreenState extends State<JustificantesAlumnoScreen> {
   final ApiService _apiService = ApiService();
   List<Map<String, dynamic>> _justificantes = [];
   bool _isLoading = true;
+  bool _fromCache = false;
+  String _filtroEstado = 'todos';
 
   @override
   void initState() {
@@ -31,349 +35,385 @@ class _JustificantesAlumnoScreenState
   }
 
   Future<void> _cargarJustificantes() async {
-    print('=== [JustificantesAlumnoScreen] CARGANDO JUSTIFICANTES ===');
-    print('User ID: ${widget.userId}');
     setState(() => _isLoading = true);
-    try {
-      final todos =
-          await _apiService.getJustificantesByAlumno(widget.userId);
-      print('✓ Justificantes obtenidos: ${todos.length}');
-      for (int i = 0; i < todos.length; i++) {
-        print('  [$i] id=${todos[i]['id']} estado=${todos[i]['estado']} titulo=${todos[i]['titulo']}');
-      }
-      setState(() {
-        _justificantes = todos;
-        _isLoading = false;
-      });
-    } catch (e) {
-      print('✗ Error al cargar justificantes: $e');
-      setState(() => _isLoading = false);
-    }
+    final list = await _apiService.getJustificantesByAlumno(widget.userId);
+    if (!mounted) return;
+    setState(() {
+      _justificantes = list;
+      _fromCache = _apiService.lastDataFromCache;
+      _isLoading = false;
+    });
+  }
+
+  List<Map<String, dynamic>> get _filtrados {
+    if (_filtroEstado == 'todos') return _justificantes;
+    return _justificantes.where((j) {
+      final estado = (j['estado'] ?? 'pendiente').toString().toLowerCase();
+      return estado == _filtroEstado;
+    }).toList();
   }
 
   Color _estadoColor(String estado) {
-    switch (estado) {
+    switch (estado.toLowerCase()) {
       case 'aprobado':
-      case 'aplicado':
-        return const Color(0xFF4CAF50);
+        return AppColors.success;
       case 'rechazado':
-      case 'rechazado_profesor':
-        return const Color(0xFFF44336);
+        return AppColors.dangerRed;
       default:
-        return const Color(0xFFFF9800);
+        return AppColors.warning;
     }
   }
 
   String _estadoLabel(String estado) {
-    switch (estado) {
-      case 'pendiente':
-        return 'Pendiente';
+    switch (estado.toLowerCase()) {
       case 'aprobado':
-        return 'Aprobado por tutor';
-      case 'aplicado':
-        return 'Justificado ✓';
+        return 'Aprobado por Tutor';
       case 'rechazado':
-        return 'Rechazado por tutor';
-      case 'rechazado_profesor':
-        return 'No aceptado por profesor';
+        return 'Rechazado';
       default:
-        return estado;
+        return 'En revisión';
     }
   }
 
-  IconData _estadoIcon(String estado) {
-    switch (estado) {
-      case 'aprobado':
-      case 'aplicado':
-        return Icons.check_circle;
-      case 'rechazado':
-      case 'rechazado_profesor':
-        return Icons.cancel;
-      default:
-        return Icons.hourglass_empty;
-    }
+  String _formatDate(dynamic raw) {
+    if (raw == null) return '';
+    final dt = DateTime.tryParse(raw.toString())?.toLocal();
+    if (dt == null) return raw.toString();
+    return DateFormat('dd/MM/yyyy').format(dt);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
-      appBar: AppBar(
-        title: const Text(
-          'Mis Justificantes',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+    final items = _filtrados;
+    return SessionWrapper(
+      child: Scaffold(
+        backgroundColor: AppColors.surfaceLight,
+        appBar: AppBar(
+          backgroundColor: AppColors.primaryDark,
+          foregroundColor: Colors.white,
+          title: const Text('Mis Justificantes'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: _cargarJustificantes,
+            ),
+          ],
         ),
-        backgroundColor: const Color(0xFF003366),
-        iconTheme: const IconThemeData(color: Colors.white),
-        elevation: 0,
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () async {
-          print('=== [JustificantesAlumnoScreen] Navegando a CrearJustificanteScreen ===');
-          final result = await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => CrearJustificanteScreen(
-                userId: widget.userId,
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: () async {
+            final created = await Navigator.push<bool>(
+              context,
+              MaterialPageRoute(
+                builder: (_) => CrearJustificanteScreen(userId: widget.userId),
+              ),
+            );
+            if (created == true) {
+              _cargarJustificantes();
+            }
+          },
+          backgroundColor: AppColors.primaryDark,
+          foregroundColor: Colors.white,
+          icon: const Icon(Icons.add),
+          label: const Text('Nuevo Justificante'),
+        ),
+        body: Column(
+          children: [
+            if (_fromCache)
+              Container(
+                width: double.infinity,
+                color: AppColors.surfaceSoftBlue,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 6,
+                ),
+                child: const Text(
+                  'Mostrando historial guardado localmente.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.primaryDark,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+              child: Row(
+                children: [
+                  _filterChip('todos', 'Todos (${_justificantes.length})'),
+                  const SizedBox(width: 8),
+                  _filterChip('pendiente', 'En revisión'),
+                  const SizedBox(width: 8),
+                  _filterChip('aprobado', 'Aprobados'),
+                  const SizedBox(width: 8),
+                  _filterChip('rechazado', 'Rechazados'),
+                ],
               ),
             ),
-          );
-          print('=== [JustificantesAlumnoScreen] Regresó de CrearJustificante, result=$result ===');
-          if (result == true) {
-            _cargarJustificantes();
-          }
-        },
-        backgroundColor: const Color(0xFF003366),
-        icon: const Icon(Icons.add, color: Colors.white),
-        label: const Text(
-          'Nuevo justificante',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-      ),
-      body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(color: Color(0xFF003366)))
-          : RefreshIndicator(
-              onRefresh: _cargarJustificantes,
-              color: const Color(0xFF003366),
-              child: _justificantes.isEmpty
-                  ? ListView(
-                      children: [
-                        SizedBox(
-                          height: MediaQuery.of(context).size.height * 0.5,
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.description_outlined,
-                                  size: 80, color: Colors.grey[300]),
-                              const SizedBox(height: 16),
-                              Text(
-                                'No tienes justificantes',
-                                style: TextStyle(
-                                  color: Colors.grey[600],
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'Crea uno con el botón +',
-                                style: TextStyle(
-                                    color: Colors.grey[400], fontSize: 14),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
-                      itemCount: _justificantes.length,
-                      itemBuilder: (context, index) {
-                        final j = _justificantes[index];
-                        final estado = j['estado'] as String? ?? 'pendiente';
-                        final fechas =
-                            (j['fechas_faltas'] as String? ?? '').split(',');
-                        final imagenes =
-                            (j['imagen_url'] as String? ?? '').split(',');
-                        final tieneImagenes =
-                            imagenes.isNotEmpty && imagenes.first.isNotEmpty;
-
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.06),
-                                blurRadius: 8,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : RefreshIndicator(
+                      onRefresh: _cargarJustificantes,
+                      child: items.isEmpty
+                          ? ListView(
+                              padding: const EdgeInsets.all(32),
                               children: [
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        j['titulo'] ?? 'Sin título',
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
-                                          color: Color(0xFF003366),
-                                        ),
-                                      ),
-                                    ),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 10, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: _estadoColor(estado)
-                                            .withOpacity(0.1),
-                                        borderRadius:
-                                            BorderRadius.circular(20),
-                                        border: Border.all(
-                                            color: _estadoColor(estado),
-                                            width: 1),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(_estadoIcon(estado),
-                                              size: 14,
-                                              color: _estadoColor(estado)),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            _estadoLabel(estado),
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w600,
-                                              color: _estadoColor(estado),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
+                                Icon(
+                                  Icons.assignment_outlined,
+                                  size: 64,
+                                  color: Colors.grey[400],
                                 ),
-                                const SizedBox(height: 8),
+                                const SizedBox(height: 12),
                                 Text(
-                                  j['asunto'] ?? '',
+                                  'No tienes justificantes registrados en esta categoría.',
+                                  textAlign: TextAlign.center,
                                   style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.grey[700],
-                                    height: 1.4,
-                                  ),
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                const SizedBox(height: 10),
-                                Wrap(
-                                  spacing: 6,
-                                  runSpacing: 4,
-                                  children: fechas
-                                      .where((f) => f.isNotEmpty)
-                                      .map((f) => Container(
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 8, vertical: 3),
-                                            decoration: BoxDecoration(
-                                              color: const Color(0xFF003366)
-                                                  .withOpacity(0.1),
-                                              borderRadius:
-                                                  BorderRadius.circular(6),
-                                            ),
-                                            child: Text(
-                                              f,
-                                              style: const TextStyle(
-                                                fontSize: 11,
-                                                color: Color(0xFF003366),
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                          ))
-                                      .toList(),
-                                ),
-                                if (tieneImagenes) ...[
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    children: [
-                                      Icon(Icons.attach_file,
-                                          size: 14, color: Colors.grey[500]),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        '${imagenes.where((i) => i.isNotEmpty).length} imagen(es) adjunta(s)',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.grey[500],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                                if (j['tutor_comentario'] != null &&
-                                    (j['tutor_comentario'] as String)
-                                        .isNotEmpty) ...[
-                                  const SizedBox(height: 8),
-                                  Container(
-                                    padding: const EdgeInsets.all(10),
-                                    decoration: BoxDecoration(
-                                      color: Colors.blue.withOpacity(0.05),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(
-                                          color: Colors.blue.withOpacity(0.2)),
-                                    ),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Icon(Icons.comment_outlined,
-                                            size: 14,
-                                            color: Colors.blue[400]),
-                                        const SizedBox(width: 6),
-                                        Expanded(
-                                          child: Text(
-                                            'Tutor: ${j['tutor_comentario']}',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.blue[700],
-                                              fontStyle: FontStyle.italic,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                                const SizedBox(height: 8),
-                                Text(
-                                  _formatFecha(j['fecha_envio'] as String?),
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.grey[400],
+                                    color: Colors.grey[600],
+                                    fontSize: 15,
                                   ),
                                 ),
                               ],
+                            )
+                          : ListView.builder(
+                              padding: const EdgeInsets.fromLTRB(
+                                14,
+                                8,
+                                14,
+                                90,
+                              ),
+                              itemCount: items.length,
+                              itemBuilder: (context, index) =>
+                                  _buildJustificanteCard(items[index]),
                             ),
-                          ),
-                        );
-                      },
                     ),
             ),
+          ],
+        ),
+      ),
     );
   }
 
-  String _formatFecha(String? fechaStr) {
-    if (fechaStr == null) return '';
-    try {
-      final fecha = DateTime.parse(fechaStr).toLocal();
-      final months = [
-        'ene', 'feb', 'mar', 'abr', 'may', 'jun',
-        'jul', 'ago', 'sep', 'oct', 'nov', 'dic'
-      ];
-      return 'Enviado el ${fecha.day} ${months[fecha.month - 1]} ${fecha.year}';
-    } catch (e) {
-      return '';
-    }
+  Widget _filterChip(String value, String label) {
+    final selected = _filtroEstado == value;
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      selectedColor: AppColors.primaryDark,
+      labelStyle: TextStyle(
+        color: selected ? Colors.white : AppColors.primaryDark,
+        fontWeight: FontWeight.w600,
+        fontSize: 12.5,
+      ),
+      onSelected: (_) => setState(() => _filtroEstado = value),
+    );
+  }
+
+  Widget _buildJustificanteCard(Map<String, dynamic> j) {
+    final estado = (j['estado'] ?? 'pendiente').toString();
+    final color = _estadoColor(estado);
+    final titulo = (j['titulo'] ?? 'Justificante de inasistencia').toString();
+    final asunto = (j['asunto'] ?? '').toString();
+    final comentarioTutor =
+        (j['comentario_tutor'] ?? j['comentarioTutor'] ?? '').toString();
+    final rawUrls = (j['imagenes_urls'] ??
+            j['imagenesUrls'] ??
+            j['evidencia_url'] ??
+            '')
+        .toString();
+
+    final rawFechas = j['fechas_faltas'] ?? j['fechasFaltas'];
+    final List<String> fechas = rawFechas is List
+        ? rawFechas.map((e) => e.toString()).toList()
+        : (rawFechas?.toString() ?? '')
+            .split(',')
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
+
+    final rawDetalles = j['detalles'];
+    final List<Map<String, dynamic>> detalles = rawDetalles is List
+        ? rawDetalles
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList()
+        : const [];
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      color: Colors.white,
+      child: Padding(
+        padding: const EdgeInsets.all(15),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    titulo,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primaryDark,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.14),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    _estadoLabel(estado),
+                    style: TextStyle(
+                      color: color,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (asunto.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                asunto,
+                style: TextStyle(color: Colors.grey[800], fontSize: 13.5),
+              ),
+            ],
+            if (fechas.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: fechas
+                    .map(
+                      (f) => Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceSoftBlue,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          f,
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            color: AppColors.primaryDark,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ],
+            if (detalles.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const Text(
+                'Dictamen por materia:',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.primaryDark,
+                ),
+              ),
+              const SizedBox(height: 6),
+              ...detalles.map((d) {
+                final mat =
+                    (d['materia_nombre'] ?? d['materiaNombre'] ?? 'Materia')
+                        .toString();
+                final estProf = (d['estado_profesor'] ??
+                        d['estadoProfesor'] ??
+                        'pendiente')
+                    .toString();
+                final commProf = (d['comentario_profesor'] ??
+                        d['comentarioProfesor'] ??
+                        '')
+                    .toString();
+                final estColor = estProf == 'aplicado'
+                    ? AppColors.success
+                    : (estProf == 'rechazado'
+                        ? AppColors.dangerRed
+                        : AppColors.warning);
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    children: [
+                      Icon(Icons.circle, size: 8, color: estColor),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          '$mat (${d['fecha_falta'] ?? d['fechaFalta'] ?? ''})${commProf.isNotEmpty ? " · $commProf" : ""}',
+                          style: const TextStyle(fontSize: 12.5),
+                        ),
+                      ),
+                      Text(
+                        estProf.toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: estColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+            if (comentarioTutor.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  'Comentario de Tutoría: $comentarioTutor',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    color: Colors.grey[800],
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
+            ],
+            if (rawUrls.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              EvidencePreviewStrip(rawUrlsCsv: rawUrls),
+            ],
+            const SizedBox(height: 8),
+            Text(
+              'Enviado: ${_formatDate(j['created_at'] ?? j['createdAt'])}',
+              style: TextStyle(fontSize: 11.5, color: Colors.grey[500]),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
-// ============================================================
-// PANTALLA PARA CREAR UN NUEVO JUSTIFICANTE (general)
-// ============================================================
 class CrearJustificanteScreen extends StatefulWidget {
   final String userId;
 
   const CrearJustificanteScreen({
-    Key? key,
+    super.key,
     required this.userId,
-  }) : super(key: key);
+  });
 
   @override
   State<CrearJustificanteScreen> createState() =>
@@ -382,596 +422,447 @@ class CrearJustificanteScreen extends StatefulWidget {
 
 class _CrearJustificanteScreenState extends State<CrearJustificanteScreen> {
   final ApiService _apiService = ApiService();
-  final _tituloController = TextEditingController();
-  final _asuntoController = TextEditingController();
+  final ConnectivityService _connectivity = ConnectivityService();
   final _formKey = GlobalKey<FormState>();
+  final _tituloCtrl = TextEditingController();
+  final _asuntoCtrl = TextEditingController();
 
-  List<Map<String, dynamic>> _fechasConFaltas = [];
-  List<String> _fechasSeleccionadas = [];
-  List<XFile> _imagenesSeleccionadas = [];
-  bool _isLoading = false;
-  bool _cargandoFaltas = true;
-  final ImagePicker _picker = ImagePicker();
+  List<Map<String, dynamic>> _faltasAgrupadas = [];
+  final Set<String> _fechasSeleccionadas = {};
+  final List<PickedAttachment> _adjuntos = [];
+  bool _isLoadingFaltas = true;
+  bool _isSubmitting = false;
 
   @override
   void initState() {
     super.initState();
-    _cargarFechasConFaltas();
+    _cargarFaltas();
   }
 
   @override
   void dispose() {
-    _tituloController.dispose();
-    _asuntoController.dispose();
+    _tituloCtrl.dispose();
+    _asuntoCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _cargarFechasConFaltas() async {
-    print('=== [CrearJustificante] CARGANDO FECHAS CON FALTAS ===');
-    print('User ID: ${widget.userId}');
-    setState(() => _cargandoFaltas = true);
-    try {
-      final fechas =
-          await _apiService.getFaltasAgrupadasPorFecha(widget.userId);
-      print('✓ Fechas con faltas obtenidas: ${fechas.length}');
-      for (final f in fechas) {
-        print('  fecha=${f['fecha']} materias=${f['materias']} claseIds=${f['claseIds']}');
-      }
-      setState(() {
-        _fechasConFaltas = fechas;
-        _cargandoFaltas = false;
-      });
-    } catch (e) {
-      print('✗ Error al cargar fechas con faltas: $e');
-      setState(() => _cargandoFaltas = false);
-    }
+  Future<void> _cargarFaltas() async {
+    setState(() => _isLoadingFaltas = true);
+    final list = await _apiService.getFaltasAgrupadasPorFecha(widget.userId);
+    if (!mounted) return;
+    setState(() {
+      _faltasAgrupadas = list;
+      _isLoadingFaltas = false;
+    });
   }
 
-  Future<void> _seleccionarImagenes() async {
-    print('=== [CrearJustificante] SELECCIONANDO IMÁGENES ===');
-    try {
-      final List<XFile> images = await _picker.pickMultiImage(
-        imageQuality: 70,
-      );
-      print('Imágenes seleccionadas del picker: ${images.length}');
-      for (final img in images) {
-        print('  nombre=${img.name} path=${img.path}');
+  Future<void> _agregarEvidencia() async {
+    final nuevos = await AppPermissionsService.showAttachmentPickerSheet(
+      context,
+      allowPdf: true,
+      allowMultiple: true,
+      title: 'Adjuntar receta, constancia o evidencia',
+    );
+    if (nuevos.isEmpty || !mounted) return;
+
+    setState(() {
+      for (final item in nuevos) {
+        if (_adjuntos.length >= 5) break;
+        _adjuntos.add(item);
       }
-      if (images.isNotEmpty) {
-        setState(() {
-          _imagenesSeleccionadas = [..._imagenesSeleccionadas, ...images]
-              .take(5)
-              .toList();
-        });
-        print('Total imágenes en lista: ${_imagenesSeleccionadas.length}');
-      }
-    } catch (e) {
-      print('✗ Error al seleccionar imágenes: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al seleccionar imágenes: $e')),
-      );
-    }
+    });
   }
 
-  Future<void> _enviarJustificante() async {
-    print('=== [CrearJustificante] INICIANDO ENVÍO ===');
-    print('User ID: ${widget.userId}');
-    print('Título: ${_tituloController.text.trim()}');
-    print('Asunto (primeros 50 chars): ${_asuntoController.text.trim().substring(0, _asuntoController.text.trim().length.clamp(0, 50))}');
-    print('Fechas seleccionadas: $_fechasSeleccionadas');
-    print('Imágenes a subir: ${_imagenesSeleccionadas.length}');
-
-    if (!_formKey.currentState!.validate()) {
-      print('✗ Formulario inválido, abortando');
-      return;
-    }
+  Future<void> _enviar() async {
+    if (!_formKey.currentState!.validate()) return;
 
     if (_fechasSeleccionadas.isEmpty) {
-      print('✗ No hay fechas seleccionadas, abortando');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Selecciona al menos una fecha'),
-          backgroundColor: Colors.orange,
+          content: Text('Selecciona al menos una fecha con falta a justificar.'),
+          backgroundColor: AppColors.warning,
         ),
       );
       return;
     }
 
-    setState(() => _isLoading = true);
-
-    try {
-      // ── PASO 1: Subir imágenes ──────────────────────────────
-      print('--- PASO 1: Subiendo imágenes ---');
-      List<String> imagenesUrls = [];
-
-      if (_imagenesSeleccionadas.isEmpty) {
-        print('  Sin imágenes que subir, continuando...');
-      }
-
-      for (int i = 0; i < _imagenesSeleccionadas.length; i++) {
-        final imagen = _imagenesSeleccionadas[i];
-        print('  Subiendo imagen $i: nombre=${imagen.name}');
-
-        final bytes = await imagen.readAsBytes();
-        print('  Tamaño en bytes: ${bytes.length}');
-
-        // Cambia esta línea (dentro del for loop en _enviarJustificante):
-        final url = await _apiService.uploadJustificanteImage(
-          bytes,
-          imagen.name.isNotEmpty ? imagen.name : 'imagen_$i.jpg', // <-- fallback si name está vacío
-          widget.userId,
-        );
-
-        print('  URL obtenida para imagen $i: $url');
-
-        if (url != null) {
-          imagenesUrls.add(url);
-          print('  ✓ URL agregada a la lista');
-        } else {
-          print('  ✗ URL nula, imagen NO se guardará');
-        }
-      }
-
-      print('Total URLs subidas exitosamente: ${imagenesUrls.length}');
-      print('URLs: $imagenesUrls');
-
-      // ── PASO 2: Recopilar claseIds ──────────────────────────
-      print('--- PASO 2: Recopilando claseIds ---');
-      final Set<String> claseIdsSet = {};
-
-      for (final fechaData in _fechasConFaltas) {
-        final fecha = fechaData['fecha'] as String;
-        if (_fechasSeleccionadas.contains(fecha)) {
-          final ids = fechaData['claseIds'] as List<String>;
-          print('  Fecha $fecha → claseIds: $ids');
-          claseIdsSet.addAll(ids);
-        }
-      }
-
-      print('ClaseIds recopilados (únicos): ${claseIdsSet.toList()}');
-
-      if (claseIdsSet.isEmpty) {
-        print('⚠ ADVERTENCIA: No se encontraron claseIds para las fechas seleccionadas');
-      }
-
-      // ── PASO 3: Crear el justificante ───────────────────────
-      print('--- PASO 3: Creando justificante general ---');
-      print('  userId: ${widget.userId}');
-      print('  titulo: ${_tituloController.text.trim()}');
-      print('  fechasFaltas: $_fechasSeleccionadas');
-      print('  claseIds: ${claseIdsSet.toList()}');
-      print('  imagenesUrls: $imagenesUrls');
-
-      final resultado = await _apiService.crearJustificanteGeneral(
-        userId: widget.userId,
-        titulo: _tituloController.text.trim(),
-        asunto: _asuntoController.text.trim(),
-        fechasFaltas: _fechasSeleccionadas,
-        claseIds: claseIdsSet.toList(),
-        imagenesUrls: imagenesUrls,
+    if (!_connectivity.isOnline.value) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Necesitas conexión a internet para subir tus evidencias y registrar el justificante.',
+          ),
+          backgroundColor: AppColors.warning,
+        ),
       );
+      return;
+    }
 
-      print('--- PASO 3 RESULTADO ---');
-      print('  resultado: $resultado');
+    setState(() => _isSubmitting = true);
 
-      setState(() => _isLoading = false);
-
-      if (resultado != null) {
-        print('✓ Justificante creado exitosamente');
-        print('  ID generado: ${resultado['id']}');
-        print('  imagen_url guardada: ${resultado['imagen_url']}');
-        print('  fechas_faltas guardadas: ${resultado['fechas_faltas']}');
-        print('  clases_ids guardadas: ${resultado['clases_ids']}');
-
-        if (mounted) {
-          showDialog(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16)),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.check_circle,
-                      color: Color(0xFF4CAF50), size: 60),
-                  const SizedBox(height: 16),
-                  const Text(
-                    '¡Justificante enviado!',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF003366),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Tu tutor revisará tu justificante pronto.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
-                  ),
-                ],
-              ),
-              actions: [
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.of(ctx).pop();
-                    Navigator.of(context).pop(true);
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF003366),
-                  ),
-                  child: const Text('Aceptar',
-                      style: TextStyle(color: Colors.white)),
-                ),
-              ],
-            ),
-          );
+    final claseIdsSet = <String>{};
+    for (final f in _faltasAgrupadas) {
+      final fecha = f['fecha']?.toString() ?? '';
+      if (_fechasSeleccionadas.contains(fecha)) {
+        final cids = f['claseIds'];
+        if (cids is List) {
+          for (final id in cids) {
+            if (id.toString().isNotEmpty) claseIdsSet.add(id.toString());
+          }
         }
+      }
+    }
+
+    final uploadedUrls = <String>[];
+    for (final adj in _adjuntos) {
+      final url = await _apiService.uploadJustificanteImage(
+        adj.bytes,
+        adj.fileName,
+        widget.userId,
+      );
+      if (url != null && url.isNotEmpty) {
+        uploadedUrls.add(url);
       } else {
-        print('✗ crearJustificanteGeneral retornó null');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Error al enviar el justificante'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    } catch (e, stackTrace) {
-      print('✗ EXCEPCIÓN en _enviarJustificante: $e');
-      print('StackTrace: $stackTrace');
-      setState(() => _isLoading = false);
-      if (mounted) {
+        if (!mounted) return;
+        setState(() => _isSubmitting = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text(
+              _apiService.lastError ??
+                  'Error subiendo el archivo "${adj.fileName}".',
+            ),
+            backgroundColor: AppColors.dangerRed,
+          ),
         );
+        return;
       }
+    }
+
+    final created = await _apiService.crearJustificanteGeneral(
+      userId: widget.userId,
+      titulo: _tituloCtrl.text.trim(),
+      asunto: _asuntoCtrl.text.trim(),
+      fechasFaltas: _fechasSeleccionadas.toList(),
+      claseIds: claseIdsSet.toList(),
+      imagenesUrls: uploadedUrls,
+    );
+
+    if (!mounted) return;
+    setState(() => _isSubmitting = false);
+
+    if (created != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Justificante enviado correctamente a Tutoría.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+      Navigator.pop(context, true);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _apiService.lastError ?? 'No se pudo enviar el justificante.',
+          ),
+          backgroundColor: AppColors.dangerRed,
+        ),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
-      appBar: AppBar(
-        title: const Text(
-          'Nuevo justificante',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+    return SessionWrapper(
+      child: Scaffold(
+        backgroundColor: AppColors.surfaceLight,
+        appBar: AppBar(
+          backgroundColor: AppColors.primaryDark,
+          foregroundColor: Colors.white,
+          title: const Text('Nuevo Justificante'),
         ),
-        backgroundColor: const Color(0xFF003366),
-        iconTheme: const IconThemeData(color: Colors.white),
-        elevation: 0,
-      ),
-      body: Form(
-        key: _formKey,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        body: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.all(16),
             children: [
-              const Text(
-                'Selecciona los días a justificar',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF003366),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '1. Fechas de inasistencia',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.primaryDark,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (_isLoadingFaltas)
+                      const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (_faltasAgrupadas.isEmpty)
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceSoftBlue,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Text(
+                          'No se encontraron faltas pendientes por justificar.',
+                          style: TextStyle(color: AppColors.primaryDark),
+                        ),
+                      )
+                    else
+                      ..._faltasAgrupadas.map((item) {
+                        final fecha = item['fecha']?.toString() ?? '';
+                        final materias = List<String>.from(
+                          item['materias'] ?? const [],
+                        );
+                        final selected = _fechasSeleccionadas.contains(fecha);
+                        return CheckboxListTile(
+                          value: selected,
+                          activeColor: AppColors.primaryDark,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                            fecha,
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          subtitle: Text(
+                            materias.join(', '),
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              color: Colors.grey[700],
+                            ),
+                          ),
+                          onChanged: (val) {
+                            setState(() {
+                              if (val == true) {
+                                _fechasSeleccionadas.add(fecha);
+                              } else {
+                                _fechasSeleccionadas.remove(fecha);
+                              }
+                            });
+                          },
+                        );
+                      }),
+                  ],
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                'Solo se muestran días en que tienes falta',
-                style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '2. Motivo y descripción',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.primaryDark,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _tituloCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Título / Motivo breve',
+                        hintText: 'Ej. Consulta médica IMSS',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (v) => (v == null || v.trim().length < 4)
+                          ? 'Ingresa un título válido'
+                          : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _asuntoCtrl,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        labelText: 'Descripción detallada',
+                        hintText: 'Explica el motivo de la inasistencia...',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (v) => (v == null || v.trim().length < 8)
+                          ? 'Describe brevemente la situación'
+                          : null,
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 12),
-
-              _cargandoFaltas
-                  ? const Center(
-                      child: CircularProgressIndicator(
-                          color: Color(0xFF003366)))
-                  : _fechasConFaltas.isEmpty
-                      ? Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.green.withOpacity(0.08),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                                color: Colors.green.withOpacity(0.3)),
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            '3. Evidencias (Foto, Galería o PDF)',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.primaryDark,
+                            ),
                           ),
-                          child: const Row(
-                            children: [
-                              Icon(Icons.check_circle,
-                                  color: Colors.green, size: 20),
-                              SizedBox(width: 10),
-                              Text('No tienes faltas registradas',
-                                  style: TextStyle(color: Colors.green)),
-                            ],
+                        ),
+                        Text(
+                          '${_adjuntos.length}/5',
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontWeight: FontWeight.w600,
                           ),
-                        )
-                      : Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.05),
-                                blurRadius: 6,
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            children: _fechasConFaltas.map((fechaData) {
-                              final fecha = fechaData['fecha'] as String;
-                              final materias =
-                                  fechaData['materias'] as List<String>;
-                              final seleccionada =
-                                  _fechasSeleccionadas.contains(fecha);
-
-                              return CheckboxListTile(
-                                title: Text(
-                                  _formatFechaLegible(fecha),
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'La app solicitará permiso para cámara o archivos al seleccionar tu comprobante.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                    const SizedBox(height: 12),
+                    if (_adjuntos.isNotEmpty)
+                      SizedBox(
+                        height: 92,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _adjuntos.length,
+                          itemBuilder: (context, idx) {
+                            final adj = _adjuntos[idx];
+                            return Stack(
+                              children: [
+                                Container(
+                                  width: 84,
+                                  height: 84,
+                                  margin: const EdgeInsets.only(right: 10),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.surfaceSoftBlue,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: Colors.grey.shade300,
+                                    ),
+                                  ),
+                                  clipBehavior: Clip.antiAlias,
+                                  child: adj.isPdf
+                                      ? Column(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
+                                            const Icon(
+                                              Icons.picture_as_pdf,
+                                              color: AppColors.dangerRed,
+                                              size: 32,
+                                            ),
+                                            Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 4,
+                                              ),
+                                              child: Text(
+                                                adj.fileName,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontSize: 10,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        )
+                                      : Image.memory(
+                                          Uint8List.fromList(adj.bytes),
+                                          fit: BoxFit.cover,
+                                        ),
+                                ),
+                                Positioned(
+                                  top: 2,
+                                  right: 12,
+                                  child: GestureDetector(
+                                    onTap: () =>
+                                        setState(() => _adjuntos.removeAt(idx)),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(2),
+                                      decoration: const BoxDecoration(
+                                        color: Colors.black54,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        Icons.close,
+                                        size: 14,
+                                        color: Colors.white,
+                                      ),
+                                    ),
                                   ),
                                 ),
-                                subtitle: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                  children: [
-                                    const SizedBox(height: 4),
-                                    Wrap(
-                                      spacing: 4,
-                                      runSpacing: 4,
-                                      children: materias
-                                          .map((m) => Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                        horizontal: 6,
-                                                        vertical: 2),
-                                                decoration: BoxDecoration(
-                                                  color: const Color(0xFF003366)
-                                                      .withOpacity(0.08),
-                                                  borderRadius:
-                                                      BorderRadius.circular(4),
-                                                ),
-                                                child: Text(
-                                                  m,
-                                                  style: const TextStyle(
-                                                    fontSize: 10,
-                                                    color: Color(0xFF003366),
-                                                  ),
-                                                ),
-                                              ))
-                                          .toList(),
-                                    ),
-                                  ],
-                                ),
-                                value: seleccionada,
-                                activeColor: const Color(0xFF003366),
-                                onChanged: (val) {
-                                  print('[CrearJustificante] Checkbox fecha=$fecha val=$val');
-                                  setState(() {
-                                    if (val == true) {
-                                      _fechasSeleccionadas.add(fecha);
-                                    } else {
-                                      _fechasSeleccionadas.remove(fecha);
-                                    }
-                                  });
-                                  print('Fechas seleccionadas ahora: $_fechasSeleccionadas');
-                                },
-                              );
-                            }).toList(),
-                          ),
+                              ],
+                            );
+                          },
                         ),
-              const SizedBox(height: 20),
-
-              const Text(
-                'Título',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF003366),
+                      ),
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed:
+                          _adjuntos.length >= 5 ? null : _agregarEvidencia,
+                      icon: const Icon(Icons.attach_file),
+                      label: const Text('Adjuntar Foto o PDF'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primaryDark,
+                        side: const BorderSide(color: AppColors.primaryDark),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _tituloController,
-                decoration: InputDecoration(
-                  hintText: 'Ej: Enfermedad, Cita médica...',
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey[300]!),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey[300]!),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide:
-                        const BorderSide(color: Color(0xFF003366), width: 2),
-                  ),
-                ),
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Campo requerido' : null,
-              ),
-              const SizedBox(height: 16),
-
-              const Text(
-                'Descripción / Asunto',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF003366),
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _asuntoController,
-                maxLines: 5,
-                decoration: InputDecoration(
-                  hintText:
-                      'Describe el motivo de tu inasistencia con el mayor detalle posible...',
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey[300]!),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey[300]!),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide:
-                        const BorderSide(color: Color(0xFF003366), width: 2),
-                  ),
-                ),
-                validator: (v) => (v == null || v.trim().length < 10)
-                    ? 'Escribe al menos 10 caracteres'
-                    : null,
-              ),
-              const SizedBox(height: 20),
-
-              const Text(
-                'Evidencias (opcional)',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF003366),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Adjunta hasta 5 imágenes como respaldo',
-                style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-              ),
-              const SizedBox(height: 12),
-
-              if (_imagenesSeleccionadas.isNotEmpty) ...[
-                SizedBox(
-                  height: 100,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _imagenesSeleccionadas.length,
-                    itemBuilder: (context, index) {
-                      return Stack(
-                        children: [
-                          Container(
-                            margin: const EdgeInsets.only(right: 8),
-                            width: 100,
-                            height: 100,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(8),
-                              image: DecorationImage(
-                                image: FileImage(
-                                    File(_imagenesSeleccionadas[index].path)),
-                                fit: BoxFit.cover,
-                              ),
-                            ),
-                          ),
-                          Positioned(
-                            top: 4,
-                            right: 12,
-                            child: GestureDetector(
-                              onTap: () {
-                                print('[CrearJustificante] Eliminando imagen $index');
-                                setState(() {
-                                  _imagenesSeleccionadas.removeAt(index);
-                                });
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.all(2),
-                                decoration: const BoxDecoration(
-                                  color: Colors.red,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(Icons.close,
-                                    color: Colors.white, size: 14),
-                              ),
-                            ),
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 8),
-              ],
-
-              if (_imagenesSeleccionadas.length < 5)
-                OutlinedButton.icon(
-                  onPressed: _seleccionarImagenes,
-                  icon: const Icon(Icons.add_photo_alternate,
-                      color: Color(0xFF003366)),
-                  label: const Text(
-                    'Agregar imágenes',
-                    style: TextStyle(color: Color(0xFF003366)),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Color(0xFF003366)),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 12),
-                  ),
-                ),
-              const SizedBox(height: 32),
-
+              const SizedBox(height: 22),
               SizedBox(
                 width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _isLoading ? null : _enviarJustificante,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF003366),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    elevation: 2,
-                  ),
-                  child: _isLoading
+                child: ElevatedButton.icon(
+                  onPressed: _isSubmitting ? null : _enviar,
+                  icon: _isSubmitting
                       ? const SizedBox(
-                          width: 24,
-                          height: 24,
+                          width: 18,
+                          height: 18,
                           child: CircularProgressIndicator(
-                              color: Colors.white, strokeWidth: 2),
-                        )
-                      : const Text(
-                          'Enviar justificante',
-                          style: TextStyle(
+                            strokeWidth: 2,
                             color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
                           ),
-                        ),
+                        )
+                      : const Icon(Icons.send),
+                  label: Text(
+                    _isSubmitting ? 'Enviando...' : 'Enviar Justificante',
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primaryDark,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
                 ),
               ),
-              const SizedBox(height: 20),
             ],
           ),
         ),
       ),
     );
-  }
-
-  String _formatFechaLegible(String fecha) {
-    try {
-      final d = DateTime.parse(fecha);
-      final days = [
-        'Lunes', 'Martes', 'Miércoles', 'Jueves',
-        'Viernes', 'Sábado', 'Domingo'
-      ];
-      final months = [
-        'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-        'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'
-      ];
-      return '${days[d.weekday - 1]} ${d.day} de ${months[d.month - 1]}';
-    } catch (e) {
-      return fecha;
-    }
   }
 }

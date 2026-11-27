@@ -1,23 +1,26 @@
 import 'package:flutter/material.dart';
-import 'package:excel/excel.dart';
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
-import 'package:intl/intl.dart';
 import '../service/api_service.dart';
+import '../service/session_service.dart';
+import '../service/session_wrapper.dart';
+import '../theme/app_colors.dart';
+import 'asistencias_materias_screen.dart';
+import 'calificaciones_screens.dart';
 import 'detalle_asistencia_alumno_screen.dart';
+import 'justificantes_profesor_screen.dart';
+import 'prediccion_alumno_screen.dart';
+import 'qralumnos.dart';
 
 class AlumnosMateriaScreen extends StatefulWidget {
-  final String materiaId;
+  final String materiaId; // Representa el claseId en esta vista
   final String materiaNombre;
   final String grupo;
 
   const AlumnosMateriaScreen({
-    Key? key,
+    super.key,
     required this.materiaId,
     required this.materiaNombre,
     required this.grupo,
-  }) : super(key: key);
+  });
 
   @override
   State<AlumnosMateriaScreen> createState() => _AlumnosMateriaScreenState();
@@ -25,684 +28,536 @@ class AlumnosMateriaScreen extends StatefulWidget {
 
 class _AlumnosMateriaScreenState extends State<AlumnosMateriaScreen> {
   final ApiService _apiService = ApiService();
+  final TextEditingController _searchCtrl = TextEditingController();
+
   List<Map<String, dynamic>> _alumnos = [];
+  List<Map<String, dynamic>> _horarios = [];
   bool _isLoading = true;
-  bool _isExporting = false;
+  bool _fromCache = false;
+  String _search = '';
 
   @override
   void initState() {
     super.initState();
-    _cargarAlumnos();
+    _cargar();
   }
 
-  Future<void> _cargarAlumnos() async {
-    setState(() {
-      _isLoading = true;
-    });
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
-    try {
-      final alumnos = await _apiService.getAlumnosConAsistenciaByGrupoYMateria(
+  Future<void> _cargar() async {
+    setState(() => _isLoading = true);
+
+    final tablaFuture = _apiService.getAsistenciasTabla(widget.materiaId);
+    final horariosFuture = _apiService.getHorariosClase(widget.materiaId);
+
+    final tabla = await tablaFuture;
+    final fromCache = _apiService.lastDataFromCache;
+    final horarios = await horariosFuture;
+
+    final rawAlumnos = List<Map<String, dynamic>>.from(
+      tabla['alumnos'] as List? ?? const [],
+    );
+    final fechas = List<String>.from(tabla['fechas'] as List? ?? const []);
+    final asistencias = (tabla['asistencias'] as Map?) ?? const {};
+
+    List<Map<String, dynamic>> procesados = [];
+
+    if (rawAlumnos.isNotEmpty) {
+      for (final al in rawAlumnos) {
+        final uid = al['id']?.toString() ?? '';
+        final mapaFechas = (asistencias[uid] as Map?) ?? const {};
+        int presentes = 0;
+        int faltas = 0;
+        int retardos = 0;
+        int justificados = 0;
+        int registrados = 0;
+
+        for (final f in fechas) {
+          final est = mapaFechas[f]?.toString().toLowerCase();
+          if (est == null || est.isEmpty) continue;
+          registrados++;
+          if (est == 'presente') {
+            presentes++;
+          } else if (est == 'retardo') {
+            retardos++;
+          } else if (est == 'justificado' || est == 'justificada') {
+            justificados++;
+          } else {
+            faltas++;
+          }
+        }
+        final pct = registrados > 0
+            ? ((presentes + justificados + (retardos * 0.5)) / registrados) *
+                100.0
+            : 100.0;
+
+        procesados.add({
+          'id': uid,
+          'nombre': (al['nombre'] ?? 'Sin nombre').toString(),
+          'matricula': (al['matricula'] ?? '').toString(),
+          'presentes': presentes,
+          'faltas': faltas,
+          'retardos': retardos,
+          'justificados': justificados,
+          'porcentaje': pct.clamp(0.0, 100.0),
+        });
+      }
+    } else {
+      final fallbackList = await _apiService.getAlumnosConAsistenciaByGrupoYMateria(
         widget.grupo,
         widget.materiaId,
       );
-      
-      setState(() {
-        _alumnos = alumnos;
-        _isLoading = false;
-      });
-      
-      print("✓ ${_alumnos.length} alumnos cargados con asistencias");
-    } catch (e) {
-      print("✗ Error al cargar alumnos: $e");
-      setState(() {
-        _isLoading = false;
-      });
+      procesados = fallbackList.map((al) {
+        final p = (al['porcentaje'] as num?)?.toDouble() ?? 100.0;
+        return {
+          'id': (al['id'] ?? al['user_id'] ?? '').toString(),
+          'nombre': (al['nombre'] ?? 'Sin nombre').toString(),
+          'matricula': (al['matricula'] ?? '').toString(),
+          'presentes': (al['presentes'] as num?)?.toInt() ?? 0,
+          'faltas': (al['faltas'] as num?)?.toInt() ?? 0,
+          'retardos': (al['retardos'] as num?)?.toInt() ?? 0,
+          'justificados': (al['justificados'] as num?)?.toInt() ?? 0,
+          'porcentaje': p,
+        };
+      }).toList();
     }
-  }
 
-  Future<void> _exportarAExcel() async {
+    if (!mounted) return;
     setState(() {
-      _isExporting = true;
+      _alumnos = procesados;
+      _horarios = horarios;
+      _fromCache = fromCache;
+      _isLoading = false;
     });
+  }
 
-    try {
-      print("=== EXPORTANDO TABLA DE ASISTENCIAS A EXCEL ===");
-      
-      // Obtener los datos completos de asistencias
-      final resultado = await _apiService.getAsistenciasTabla(widget.materiaId);
-      
-      final List<Map<String, dynamic>> alumnos = List<Map<String, dynamic>>.from(resultado['alumnos'] ?? []);
-      final List<String> fechas = List<String>.from(resultado['fechas'] ?? []);
-      final Map<String, Map<String, String>> asistencias = Map<String, Map<String, String>>.from(
-        (resultado['asistencias'] as Map).map(
-          (key, value) => MapEntry(
-            key.toString(),
-            Map<String, String>.from(value as Map),
-          ),
-        ),
-      );
+  List<Map<String, dynamic>> get _filtrados {
+    final q = _search.trim().toLowerCase();
+    if (q.isEmpty) return _alumnos;
+    return _alumnos.where((al) {
+      final n = al['nombre'].toString().toLowerCase();
+      final m = al['matricula'].toString().toLowerCase();
+      return n.contains(q) || m.contains(q);
+    }).toList();
+  }
 
-      if (alumnos.isEmpty) {
-        throw Exception('No hay datos de asistencia para exportar');
-      }
-
-      print("✓ Datos obtenidos: ${alumnos.length} alumnos, ${fechas.length} fechas");
-      
-      // Crear un nuevo libro de Excel
-      var excel = Excel.createExcel();
-      Sheet sheetObject = excel['Sheet1'];
-
-      // Estilos
-      var headerStyle = CellStyle(
-        backgroundColorHex: "#004C8C",
-        fontColorHex: "#FFFFFF",
-        bold: true,
-        horizontalAlign: HorizontalAlign.Center,
-        verticalAlign: VerticalAlign.Center,
-      );
-
-      var titleStyle = CellStyle(
-        backgroundColorHex: "#4A9FD8",
-        fontColorHex: "#FFFFFF",
-        bold: true,
-        fontSize: 14,
-        horizontalAlign: HorizontalAlign.Center,
-        verticalAlign: VerticalAlign.Center,
-      );
-
-      var presenteStyle = CellStyle(
-        backgroundColorHex: "#4CAF50",
-        fontColorHex: "#FFFFFF",
-        bold: true,
-        horizontalAlign: HorizontalAlign.Center,
-        verticalAlign: VerticalAlign.Center,
-      );
-
-      var faltaStyle = CellStyle(
-        backgroundColorHex: "#F44336",
-        fontColorHex: "#FFFFFF",
-        bold: true,
-        horizontalAlign: HorizontalAlign.Center,
-        verticalAlign: VerticalAlign.Center,
-      );
-
-      var sinRegistroStyle = CellStyle(
-        backgroundColorHex: "#BDBDBD",
-        fontColorHex: "#FFFFFF",
-        horizontalAlign: HorizontalAlign.Center,
-        verticalAlign: VerticalAlign.Center,
-      );
-
-      var retardoStyle = CellStyle(
-      backgroundColorHex: "#FFC107", // Amarillo para retardo
-      fontColorHex: "#000000", // Texto negro para mejor contraste
-      bold: true,
-      horizontalAlign: HorizontalAlign.Center,
-      verticalAlign: VerticalAlign.Center,
-      );
-
-      var boldStyle = CellStyle(bold: true);
-      var italicStyle = CellStyle(italic: true);
-
-      // Título principal
-      var cellTitulo = sheetObject.cell(CellIndex.indexByString("A1"));
-      cellTitulo.value = 'REGISTRO DE ASISTENCIAS';
-      cellTitulo.cellStyle = titleStyle;
-      
-      // Merge para el título
-      int totalColumnas = fechas.length + 5; // Alumno, Matrícula, Fechas, Total Presente, Total Faltas, % Asistencia
-      sheetObject.merge(
-        CellIndex.indexByString("A1"),
-        CellIndex.indexByColumnRow(columnIndex: totalColumnas - 1, rowIndex: 0),
-      );
-
-      // Información de la materia
-      var cellMateria = sheetObject.cell(CellIndex.indexByString("A2"));
-      cellMateria.value = 'Materia: ${widget.materiaNombre}';
-      cellMateria.cellStyle = boldStyle;
-
-      var cellGrupo = sheetObject.cell(CellIndex.indexByString("A3"));
-      cellGrupo.value = 'Grupo: ${widget.grupo}';
-      cellGrupo.cellStyle = boldStyle;
-
-      var cellFecha = sheetObject.cell(CellIndex.indexByString("A4"));
-      cellFecha.value = 'Fecha de exportación: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}';
-      cellFecha.cellStyle = italicStyle;
-
-      // Fila vacía en 5
-      int currentRow = 6;
-
-      // Headers de la tabla
-      var cellAlumno = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: currentRow));
-      cellAlumno.value = 'Alumno';
-      cellAlumno.cellStyle = headerStyle;
-
-      var cellMatricula = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: currentRow));
-      cellMatricula.value = 'Matrícula';
-      cellMatricula.cellStyle = headerStyle;
-
-      // Headers de fechas
-      for (int i = 0; i < fechas.length; i++) {
-        var cell = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: i + 2, rowIndex: currentRow));
-        cell.value = _formatFecha(fechas[i]);
-        cell.cellStyle = headerStyle;
-      }
-
-      // Agregar columnas de resumen
-      var cellTotalPresente = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: fechas.length + 2, rowIndex: currentRow));
-      cellTotalPresente.value = 'Total Presente';
-      cellTotalPresente.cellStyle = headerStyle;
-
-      var cellTotalFaltas = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: fechas.length + 3, rowIndex: currentRow));
-      cellTotalFaltas.value = 'Total Faltas';
-      cellTotalFaltas.cellStyle = headerStyle;
-
-      var cellPorcentaje = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: fechas.length + 4, rowIndex: currentRow));
-      cellPorcentaje.value = '% Asistencia';
-      cellPorcentaje.cellStyle = headerStyle;
-
-      currentRow++;
-
-      // Datos de alumnos
-      for (var alumno in alumnos) {
-        final userId = alumno['user_id'] as String;
-        
-        // Nombre
-        var cellNombre = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: currentRow));
-        cellNombre.value = alumno['nombre'] ?? '';
-
-        // Matrícula
-        var cellMatriculaData = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: currentRow));
-        cellMatriculaData.value = alumno['matricula'] ?? '';
-
-        int totalPresente = 0;
-        int totalFaltas = 0;
-        int totalRetardos = 0;
-
-        // Asistencias por fecha
-        for (int i = 0; i < fechas.length; i++) {
-          final fecha = fechas[i];
-          final estado = asistencias[userId]?[fecha] ?? 'Sin registro';
-          
-          var cell = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: i + 2, rowIndex: currentRow));
-          
-          if (estado.toLowerCase() == 'presente') {
-            cell.value = 'P';
-            cell.cellStyle = presenteStyle;
-            totalPresente++;
-          } else if (estado.toLowerCase() == 'falta') {
-            cell.value = 'F';
-            cell.cellStyle = faltaStyle;
-            totalFaltas++;
-          } else if (estado.toLowerCase() == 'retardo') {
-            cell.value = 'R';
-            cell.cellStyle = retardoStyle;
-            totalRetardos++;
-          }else {
-            cell.value = '-';
-            cell.cellStyle = sinRegistroStyle;
-          }
-        }
-
-        // Total Presente
-        var cellTotalPresenteData = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: fechas.length + 2, rowIndex: currentRow));
-        cellTotalPresenteData.value = totalPresente;
-        cellTotalPresenteData.cellStyle = CellStyle(bold: true, horizontalAlign: HorizontalAlign.Center);
-
-        // Total Faltas
-        var cellTotalFaltasData = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: fechas.length + 3, rowIndex: currentRow));
-        cellTotalFaltasData.value = totalFaltas;
-        cellTotalFaltasData.cellStyle = CellStyle(bold: true, horizontalAlign: HorizontalAlign.Center);
-
-        // Porcentaje
-        double porcentaje = fechas.isEmpty ? 0 : (totalPresente / fechas.length) * 100;
-        var cellPorcentajeData = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: fechas.length + 4, rowIndex: currentRow));
-        cellPorcentajeData.value = '${porcentaje.toStringAsFixed(1)}%';
-        cellPorcentajeData.cellStyle = CellStyle(
-          bold: true,
-          horizontalAlign: HorizontalAlign.Center,
-          backgroundColorHex: porcentaje >= 90 
-              ? "#4CAF50"
-              : porcentaje >= 80
-                  ? "#FFA726"
-                  : "#F44336",
-          fontColorHex: "#FFFFFF",
-        );
-
-        currentRow++;
-      }
-
-      // Ajustar ancho de columnas
-      sheetObject.setColWidth(0, 25); // Alumno
-      sheetObject.setColWidth(1, 15); // Matrícula
-      for (int i = 0; i < fechas.length; i++) {
-        sheetObject.setColWidth(i + 2, 12); // Fechas
-      }
-      sheetObject.setColWidth(fechas.length + 2, 15); // Total Presente
-      sheetObject.setColWidth(fechas.length + 3, 15); // Total Faltas
-      sheetObject.setColWidth(fechas.length + 4, 15); // % Asistencia
-
-      print("✓ Excel creado exitosamente");
-
-      // Codificar el archivo
-      var fileBytes = excel.encode();
-      
-      if (fileBytes == null) {
-        throw Exception('Error al generar el archivo Excel');
-      }
-
-      // Obtener directorio temporal
-      final directory = await getTemporaryDirectory();
-      final fileName = 'Asistencias_${widget.materiaNombre.replaceAll(' ', '_')}_Grupo_${widget.grupo}_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.xlsx';
-      final filePath = '${directory.path}/$fileName';
-      
-      print("✓ Guardando archivo en: $filePath");
-      
-      // Escribir archivo
-      File file = File(filePath);
-      await file.writeAsBytes(fileBytes);
-      
-      print("✓ Archivo guardado exitosamente");
-
-      if (mounted) {
-        setState(() {
-          _isExporting = false;
-        });
-
-        // Compartir el archivo
-        print("✓ Compartiendo archivo...");
-        final result = await Share.shareXFiles(
-          [XFile(filePath)],
-          subject: 'Asistencias - ${widget.materiaNombre} - Grupo ${widget.grupo}',
-          text: 'Registro de asistencias exportado desde CONTROL+',
-        );
-
-        if (result.status == ShareResultStatus.success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('✓ Excel exportado exitosamente'),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 2),
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Excel creado. Puedes encontrarlo en tus archivos.'),
-              backgroundColor: Colors.orange,
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
-      }
-    } catch (e, stackTrace) {
-      print("✗ Error al exportar: $e");
-      print("Stack trace: $stackTrace");
-      
-      if (mounted) {
-        setState(() {
-          _isExporting = false;
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error al exportar: ${e.toString()}'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
+  String _diaNombre(dynamic d) {
+    switch (int.tryParse(d?.toString() ?? '') ?? 0) {
+      case 1:
+        return 'Lun';
+      case 2:
+        return 'Mar';
+      case 3:
+        return 'Mié';
+      case 4:
+        return 'Jue';
+      case 5:
+        return 'Vie';
+      case 6:
+        return 'Sáb';
+      case 7:
+        return 'Dom';
+      default:
+        return 'Día';
     }
   }
 
-  String _formatFecha(String fecha) {
-    try {
-      final date = DateTime.parse(fecha);
-      return DateFormat('dd/MM').format(date);
-    } catch (e) {
-      return fecha;
-    }
-  }
-
-  Color _getColorPorcentaje(int porcentaje) {
-    if (porcentaje >= 90) {
-      return const Color(0xFF4CAF50); // Verde
-    } else if (porcentaje >= 80) {
-      return const Color(0xFFFFA726); // Naranja
-    } else {
-      return const Color(0xFFEF5350); // Rojo
-    }
+  Color _pctColor(double pct) {
+    if (pct >= 85) return AppColors.success;
+    if (pct >= 75) return AppColors.warning;
+    return AppColors.dangerRed;
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Column(
-        children: [
-          // Header
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.only(top: 50, bottom: 20),
-            decoration: const BoxDecoration(
-              color: Color(0xFF004C8C),
-            ),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(
-                        Icons.arrow_back,
-                        color: Colors.white,
-                        size: 28,
-                      ),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                    const Expanded(
-                      child: Text(
-                        'CONTROL+',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.5,
-                        ),
-                      ),
-                    ),
-                    // Botón de exportar en el header
-                    if (!_isLoading && _alumnos.isNotEmpty)
-                      IconButton(
-                        onPressed: _isExporting ? null : _exportarAExcel,
-                        icon: _isExporting
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  color: Colors.white,
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(
-                                Icons.file_download,
-                                color: Colors.white,
-                                size: 28,
-                              ),
-                        tooltip: 'Exportar tabla de asistencias',
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
+    final items = _filtrados;
+    final profId = SessionService().userId ?? '';
 
-          // Body
-          Expanded(
-            child: Container(
-              width: double.infinity,
-              color: const Color(0xFFE8E8E8),
-              child: Column(
-                children: [
-                  // Título
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 24,
-                      horizontal: 20,
-                    ),
-                    child: Column(
-                      children: [
-                        Text(
-                          widget.materiaNombre,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Color(0xFF004C8C),
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Listado de Alumnos del',
-                          style: TextStyle(
-                            color: Colors.black54,
-                            fontSize: 14,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'grupo ${widget.grupo}',
-                          style: const TextStyle(
-                            color: Color(0xFF004C8C),
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        // Botón de exportar alternativo
-                        if (!_isLoading && _alumnos.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 16),
-                            child: ElevatedButton.icon(
-                              onPressed: _isExporting ? null : _exportarAExcel,
-                              icon: _isExporting
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        color: Colors.white,
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Icon(Icons.table_chart),
-                              label: Text(_isExporting ? 'Exportando...' : 'Exportar Tabla de Asistencias'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF4A9FD8),
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 24,
-                                  vertical: 12,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(25),
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-
-                  // Lista de alumnos
-                  _isLoading
-                      ? const Expanded(
-                          child: Center(
-                            child: CircularProgressIndicator(
-                              color: Color(0xFF004C8C),
-                            ),
-                          ),
-                        )
-                      : _alumnos.isEmpty
-                          ? Expanded(child: _buildEmptyState())
-                          : Expanded(child: _buildAlumnosList()),
-                  
-                  // Espacio inferior
-                  const SizedBox(height: 20),
-                ],
+    return SessionWrapper(
+      child: Scaffold(
+        backgroundColor: AppColors.surfaceLight,
+        appBar: AppBar(
+          backgroundColor: AppColors.primaryDark,
+          foregroundColor: Colors.white,
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.materiaNombre,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 16.5),
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAlumnosList() {
-    return SingleChildScrollView(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
+              Text(
+                'Grupo ${widget.grupo} · ${_alumnos.length} alumnos',
+                style: const TextStyle(fontSize: 12, color: Colors.white70),
               ),
             ],
           ),
-          child: Column(
-            children: List.generate(
-              _alumnos.length,
-              (index) {
-                final alumno = _alumnos[index];
-                return Column(
-                  children: [
-                    if (index > 0)
-                      const Divider(
-                        height: 32,
-                        color: Color(0xFFE0E0E0),
-                        thickness: 1,
-                      ),
-                    _buildAlumnoItem(alumno),
-                  ],
+          actions: [
+            IconButton(
+              tooltip: 'QR de clase',
+              icon: const Icon(Icons.qr_code_2),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ClaseQrScreen(
+                      claseId: widget.materiaId,
+                      nombreMateria: widget.materiaNombre,
+                      grupo: widget.grupo,
+                    ),
+                  ),
                 );
               },
             ),
-          ),
+            IconButton(
+              tooltip: 'Tabla completa',
+              icon: const Icon(Icons.table_chart_outlined),
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => AsistenciasMateriasScreen(
+                      claseId: widget.materiaId,
+                      nombreMateria: widget.materiaNombre,
+                      grupo: widget.grupo,
+                    ),
+                  ),
+                );
+                _cargar();
+              },
+            ),
+          ],
+        ),
+        body: Column(
+          children: [
+            if (_fromCache)
+              Container(
+                width: double.infinity,
+                color: AppColors.surfaceSoftBlue,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 6,
+                ),
+                child: const Text(
+                  'Mostrando datos guardados en caché offline.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.primaryDark,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            Container(
+              color: Colors.white,
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _quickAction(
+                          icon: Icons.qr_code_2,
+                          label: 'Pase QR Clase',
+                          color: AppColors.primaryDark,
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ClaseQrScreen(
+                                claseId: widget.materiaId,
+                                nombreMateria: widget.materiaNombre,
+                                grupo: widget.grupo,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _quickAction(
+                          icon: Icons.fact_check_outlined,
+                          label: 'Tabla & Excel',
+                          color: AppColors.primary,
+                          onTap: () async {
+                            await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => AsistenciasMateriasScreen(
+                                  claseId: widget.materiaId,
+                                  nombreMateria: widget.materiaNombre,
+                                  grupo: widget.grupo,
+                                ),
+                              ),
+                            );
+                            _cargar();
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        _quickAction(
+                          icon: Icons.grade_outlined,
+                          label: 'Calificaciones',
+                          color: AppColors.accentBlue,
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => CalificacionesClaseScreen(
+                                claseId: widget.materiaId,
+                                nombreMateria: widget.materiaNombre,
+                                grupo: widget.grupo,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _quickAction(
+                          icon: Icons.assignment_turned_in_outlined,
+                          label: 'Justificantes',
+                          color: AppColors.successDark,
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => JustificantesProfesorScreen(
+                                profesorId: profId,
+                                materiaNombre: widget.materiaNombre,
+                                grupo: widget.grupo,
+                                claseId: widget.materiaId,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_horarios.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: _horarios.map((h) {
+                          final dia = _diaNombre(h['dia_semana'] ?? h['diaSemana']);
+                          final hi = (h['hora_inicio'] ?? h['horaInicio'] ?? '').toString();
+                          final hf = (h['hora_fin'] ?? h['horaFin'] ?? '').toString();
+                          final salon = (h['salon_nombre'] ?? h['salon'] ?? '').toString();
+                          return Container(
+                            margin: const EdgeInsets.only(right: 8),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.surfaceSoftBlue,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '$dia $hi-$hf${salon.isNotEmpty ? " · $salon" : ""}',
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                color: AppColors.primaryDark,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _searchCtrl,
+                    decoration: InputDecoration(
+                      hintText: 'Buscar por nombre o matrícula...',
+                      prefixIcon: const Icon(Icons.search, size: 20),
+                      isDense: true,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      suffixIcon: _search.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, size: 18),
+                              onPressed: () {
+                                _searchCtrl.clear();
+                                setState(() => _search = '');
+                              },
+                            )
+                          : null,
+                    ),
+                    onChanged: (v) => setState(() => _search = v),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : RefreshIndicator(
+                      onRefresh: _cargar,
+                      child: items.isEmpty
+                          ? ListView(
+                              padding: const EdgeInsets.all(32),
+                              children: [
+                                Icon(
+                                  Icons.person_search_outlined,
+                                  size: 60,
+                                  color: Colors.grey[400],
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'No se encontraron alumnos en este grupo.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: Colors.grey[600]),
+                                ),
+                              ],
+                            )
+                          : ListView.builder(
+                              padding: const EdgeInsets.all(14),
+                              itemCount: items.length,
+                              itemBuilder: (ctx, i) => _buildAlumnoCard(items[i]),
+                            ),
+                    ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-// Cambia el método _buildAlumnoItem en tu AlumnosMateriaScreen:
+  Widget _quickAction({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return ElevatedButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, size: 16),
+      label: Text(label, style: const TextStyle(fontSize: 12.5)),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: color,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
 
-Widget _buildAlumnoItem(Map<String, dynamic> alumno) {
-  final porcentaje = alumno['porcentaje'] as int;
-  final color = _getColorPorcentaje(porcentaje);
+  Widget _buildAlumnoCard(Map<String, dynamic> al) {
+    final uid = al['id']?.toString() ?? '';
+    final nombre = al['nombre']?.toString() ?? '';
+    final matricula = al['matricula']?.toString() ?? '';
+    final pct = (al['porcentaje'] as num?)?.toDouble() ?? 100.0;
+    final pColor = _pctColor(pct);
 
-  return InkWell(
-    onTap: () {
-      // Debug: ver estructura completa del alumno
-      print("=== DEBUG ALUMNO ===");
-      print("Alumno completo: $alumno");
-      print("Keys disponibles: ${alumno.keys.toList()}");
-      
-      // Obtener el user_id correctamente
-      final userId = alumno['id'] as String?;  // En tu estructura, el ID está en 'id', no 'user_id'
-      
-      if (userId == null) {
-        print("✗ ERROR: No se encontró el ID del alumno");
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Error: No se encontró el ID del alumno'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
-      
-      print("✓ Usuario ID encontrado: $userId");
-      print("✓ Navegando a detalle de asistencia...");
-      
-      // Navegar a la pantalla de detalle
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => DetalleAsistenciaAlumnoScreen(
-            userId: userId,
-            alumnoNombre: (alumno['nombre'] ?? 'Alumno').toString(),
-            materiaId: widget.materiaId,
-            materiaNombre: widget.materiaNombre,
-            grupo: widget.grupo,
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      color: Colors.white,
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        leading: CircleAvatar(
+          backgroundColor: AppColors.primaryDark,
+          child: Text(
+            nombre.isNotEmpty ? nombre[0].toUpperCase() : 'A',
+            style: const TextStyle(color: Colors.white),
           ),
         ),
-      ).then((_) {
-        // Recargar los datos cuando regrese de la pantalla de detalle
-        print("✓ Regresando de detalle, recargando datos...");
-        _cargarAlumnos();
-      });
-    },
-    child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          // Nombre del alumno
-          Expanded(
-            child: Text(
-              alumno['nombre'],
-              style: const TextStyle(
-                color: Color(0xFF004C8C),
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
+        title: Text(
+          nombre,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            color: AppColors.primaryDark,
+          ),
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (matricula.isNotEmpty)
+                Text(
+                  'Matrícula: $matricula',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  _miniStat('P: ${al['presentes']}', AppColors.successDark),
+                  const SizedBox(width: 8),
+                  _miniStat('F: ${al['faltas']}', AppColors.dangerRed),
+                  const SizedBox(width: 8),
+                  _miniStat('J: ${al['justificados']}', AppColors.accentBlue),
+                ],
+              ),
+            ],
+          ),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(
+                color: pColor.withOpacity(0.14),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                '${pct.toStringAsFixed(0)}%',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: pColor,
+                  fontSize: 13,
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 16),
-          // Porcentaje
-          Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 6,
+            IconButton(
+              tooltip: 'Análisis predictivo',
+              icon: const Icon(Icons.analytics_outlined, color: AppColors.primary),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => PrediccionAlumnoScreen(
+                      alumnoId: uid,
+                      nombreAlumno: nombre,
+                      matricula: matricula,
+                      claseId: widget.materiaId,
+                    ),
+                  ),
+                );
+              },
             ),
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              '$porcentaje%',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
+          ],
+        ),
+        onTap: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => DetalleAsistenciaAlumnoScreen(
+                userId: uid,
+                alumnoNombre: nombre,
+                materiaId: widget.materiaId,
+                materiaNombre: widget.materiaNombre,
+                grupo: widget.grupo,
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-          // Icono de flecha
-          Icon(
-            Icons.arrow_forward_ios,
-            size: 16,
-            color: Colors.grey[400],
-          ),
-        ],
+          );
+          _cargar();
+        },
       ),
-    ),
-  );
-}
+    );
+  }
 
-
-
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.people_outline,
-            size: 80,
-            color: Colors.grey[400],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'No hay alumnos en este grupo',
-            style: TextStyle(
-              color: Colors.grey[600],
-              fontSize: 18,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'El grupo ${widget.grupo} no tiene alumnos asignados',
-            style: TextStyle(
-              color: Colors.grey[500],
-              fontSize: 14,
-            ),
-          ),
-        ],
+  Widget _miniStat(String text, Color color) {
+    return Text(
+      text,
+      style: TextStyle(
+        fontSize: 11.5,
+        fontWeight: FontWeight.bold,
+        color: color,
       ),
     );
   }

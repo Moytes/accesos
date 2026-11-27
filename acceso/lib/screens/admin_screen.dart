@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'users_screen.dart';
 import 'entradas_salidas.dart';
+import 'gestion_institucional_screen.dart';
+import 'visitas_screen.dart';
+import 'noticias_screen.dart';
+import 'profile_screen.dart';
+import '../navigation/role_router.dart';
 import '../service/session_wrapper.dart';
 import '../service/session_service.dart';
 import '../service/api_service.dart';
@@ -26,7 +31,9 @@ class _AdminScreenState extends State<AdminScreen> {
 
   @override
   void dispose() {
-    _sessionService.endSession();
+    if (!_sessionService.isSessionActive) {
+      _sessionService.endSession();
+    }
     super.dispose();
   }
 
@@ -133,6 +140,26 @@ class _AdminScreenState extends State<AdminScreen> {
             ],
           ),
           actions: [
+            RoleSwitcherButton(
+              currentRole: 'admin',
+              userId: widget.userId,
+              nombre: widget.nombre,
+            ),
+            IconButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ProfileScreen(
+                      userId: widget.userId,
+                      nombre: widget.nombre,
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.account_circle, color: Colors.white),
+              tooltip: 'Mi Perfil',
+            ),
             IconButton(
               onPressed: _isLoggingOut ? null : _handleLogout,
               icon: _isLoggingOut
@@ -200,18 +227,16 @@ class _AdminScreenState extends State<AdminScreen> {
 
 
               Expanded(
-                child: Padding(
+                child: SingleChildScrollView(
                   padding: const EdgeInsets.all(20.0),
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-
                       _buildAdminCard(
                         context: context,
                         icon: Icons.people,
                         title: 'Ver Usuarios',
                         description:
-                            'Gestionar y visualizar todos los usuarios registrados',
+                            'Gestionar cuentas, multi-rol, matrículas y empleados',
                         color: const Color(0xFF003366),
                         onTap: () {
                           Navigator.push(
@@ -222,22 +247,76 @@ class _AdminScreenState extends State<AdminScreen> {
                           );
                         },
                       ),
-
-                      const SizedBox(height: 20),
-
-                      // Tarjeta Ver Entradas
+                      const SizedBox(height: 16),
                       _buildAdminCard(
                         context: context,
                         icon: Icons.assignment,
-                        title: 'Ver Entradas',
+                        title: 'Entradas y Salidas',
                         description:
-                            'Gestionar y visualizar todas las entradas del sistema',
+                            'Accesos, denegaciones, filtros por zona y exportación Excel',
                         color: const Color(0xFF003366),
                         onTap: () {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
                               builder: (context) => const EntradasSalidasScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      _buildAdminCard(
+                        context: context,
+                        icon: Icons.account_balance_outlined,
+                        title: 'Gestión Institucional',
+                        description:
+                            'Periodos, grupos, materias, zonas IoT, Lizard y auditoría',
+                        color: const Color(0xFF003366),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  const GestionInstitucionalScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      _buildAdminCard(
+                        context: context,
+                        icon: Icons.qr_code_scanner,
+                        title: 'Control de Visitas',
+                        description:
+                            'Consultar pases QR de visitantes y cancelaciones',
+                        color: const Color(0xFF003366),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => VisitasScreen(
+                                adminId: widget.userId,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      _buildAdminCard(
+                        context: context,
+                        icon: Icons.campaign_outlined,
+                        title: 'Noticias y Marketing',
+                        description:
+                            'Publicar avisos institucionales y comunicados',
+                        color: const Color(0xFF003366),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => MarketingDashboardScreen(
+                                userId: widget.userId,
+                                nombre: widget.nombre,
+                              ),
                             ),
                           );
                         },

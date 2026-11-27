@@ -1,10 +1,11 @@
+import 'dart:io' show Platform;
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'alumnos.dart';
-import 'homeprofesor.dart';
-import 'admin_screen.dart';
-import 'admin_panel_screen.dart';  // IMPORT AGREGADO
+import '../config/api_config.dart';
+import '../navigation/role_router.dart';
 import '../service/api_service.dart';
-import 'seguridad_screen.dart';
+import '../service/session_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -19,6 +20,13 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _obscurePassword = true;
+  bool _isCheckingSession = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _verificarSesionExistente();
+  }
 
   @override
   void dispose() {
@@ -27,6 +35,66 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  // ─── VERIFICAR SESIÓN GUARDADA (ONLINE U OFFLINE) ───────────────────
+  Future<void> _verificarSesionExistente() async {
+    try {
+      final restored = await SessionService().restorePersistedSession();
+      final session = SessionService();
+      final userId = session.userId;
+      final rol = session.rol;
+
+      if (restored &&
+          userId != null &&
+          userId.isNotEmpty &&
+          rol != null &&
+          rol.isNotEmpty &&
+          mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _navegarSegunRol(userId, session.nombre, rol);
+          }
+        });
+      } else if (mounted) {
+        setState(() {
+          _isCheckingSession = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error verificando sesión: $e');
+      if (mounted) {
+        setState(() {
+          _isCheckingSession = false;
+        });
+      }
+    }
+  }
+
+  // ─── NAVEGACIÓN SEGÚN ROL (8 ROLES V2) ──────────────────────────────
+  void _navegarSegunRol(String userId, String? nombre, String rol) {
+    if (!mounted) return;
+    RoleRouter.navigateToRoleHome(
+      context,
+      rol: rol,
+      userId: userId,
+      nombre: nombre,
+    );
+  }
+
+  // ─── REGISTRAR FCM TOKEN (SOLO SI PUSH ESTÁ HABILITADO) ──────────────
+  Future<void> _registrarFCMToken(String userId) async {
+    if (!ApiConfig.enablePushNotifications) return;
+    try {
+      final fcm = FirebaseMessaging.instance;
+      final token = await fcm.getToken();
+      if (token != null && token.isNotEmpty) {
+        await _apiService.guardarFCMToken(userId, token);
+      }
+    } catch (e) {
+      debugPrint('FCM omitido o no disponible: $e');
+    }
+  }
+
+  // ─── HANDLE LOGIN ───────────────────────────────────────────────────
   Future<void> _handleLogin() async {
     final correo = _emailController.text.trim();
     final password = _passwordController.text.trim();
@@ -39,71 +107,55 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final user = await _apiService.login(correo, password);
+      final deviceInfo = kIsWeb
+          ? 'Control+ Web'
+          : 'Control+ ${Platform.operatingSystem}';
+      final user = await _apiService.login(
+        correo,
+        password,
+        deviceInfo: deviceInfo,
+      );
 
       if (user != null) {
-        final rol = user['rol'] as String?;
-        final userId = user['id'] as String;
-        final nombre = user['nombre'] as String?;
-        
+        final rol = (user['rol'] ?? 'alumno').toString();
+        final userId = user['id'].toString();
+        final nombre = (user['nombre'] ?? 'Usuario').toString();
+        final rawRoles = user['roles'];
+        final roles = rawRoles is List && rawRoles.isNotEmpty
+            ? rawRoles.map((e) => e.toString()).toList()
+            : <String>[rol];
+
+        await SessionService().startSession(
+          userId: userId,
+          nombre: nombre,
+          rol: rol,
+          roles: roles,
+          email: user['correo']?.toString() ?? correo,
+          matricula: user['matricula']?.toString(),
+          numeroEmpleado:
+              (user['numero_empleado'] ?? user['numeroEmpleado'])?.toString(),
+          grupo: user['grupo']?.toString(),
+          imagenUrl:
+              (user['imagen_url'] ?? user['imagenUrl'])?.toString(),
+          sessionId: user['sessionId']?.toString(),
+        );
+
+        await _registrarFCMToken(userId);
+
         if (mounted) {
-          if (rol == 'Alumno') {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (context) => AsistenciasScreen(
-                  userId: userId,
-                  nombre: nombre,
-                ),
-              ),
-            );
-          } else if (rol == 'Profesor' || rol == 'Tutor') {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (context) => ProfessorDashboard(
-                  userId: userId,
-                  nombre: nombre,
-                  rol: rol,
-                ),
-              ),
-            );
-          } else if (rol == 'Admin') {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (context) => AdminScreen(
-                  userId: userId,
-                  nombre: nombre,
-                ),
-              ),
-            );
-          } else if (rol == 'Administrativo') {  
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (context) => AdminPanelScreen(
-                  userId: userId,
-                  nombre: nombre,
-                ),
-              ),
-            );
-          } else if (rol == 'Seguridad') {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (context) => SeguridadScreen(
-                  userId: userId,
-                  nombre: nombre,
-                ),
-              ),
-            );
-          } else {
-            _showMessage('Rol de usuario no reconocido');
-          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Inicio de sesión exitoso'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
+          _navegarSegunRol(userId, nombre, rol);
         }
       } else {
-        _showMessage('Correo o contraseña incorrectos');
+        _showMessage(
+          _apiService.lastError ?? 'Correo o contraseña incorrectos',
+        );
       }
     } catch (e) {
       _showMessage('Error al iniciar sesión: $e');
@@ -114,6 +166,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  // ─── SHOW MESSAGE ─────────────────────────────────────────────────────
   void _showMessage(String message) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -126,13 +179,39 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  // ─── BUILD ────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    // Si está verificando sesión, mostrar loading
+    if (_isCheckingSession) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFE8E8E8),
+        body: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(
+                color: Color(0xFF1B4F72),
+              ),
+              SizedBox(height: 20),
+              Text(
+                'Verificando sesión...',
+                style: TextStyle(
+                  color: Color(0xFF1B4F72),
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFE8E8E8),
       body: Stack(
         children: [
-          // Círculos decorativos superiores
+          // ── Círculos decorativos ──
           Positioned(
             top: -100,
             left: -50,
@@ -181,6 +260,8 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ),
           ),
+          
+          // ── Contenido principal ──
           SafeArea(
             child: Center(
               child: SingleChildScrollView(
@@ -189,6 +270,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const SizedBox(height: 40),
+                    
+                    // Logo / Título
                     const Text(
                       'CONTROL+',
                       style: TextStyle(
@@ -198,7 +281,18 @@ class _LoginScreenState extends State<LoginScreen> {
                         letterSpacing: 2,
                       ),
                     ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Sistema de Control Escolar',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Color(0xFF1B4F72),
+                        letterSpacing: 1,
+                      ),
+                    ),
                     const SizedBox(height: 60),
+                    
+                    // ── Campo Email ──
                     Container(
                       decoration: BoxDecoration(
                         color: Colors.white,
@@ -216,16 +310,22 @@ class _LoginScreenState extends State<LoginScreen> {
                         keyboardType: TextInputType.emailAddress,
                         enabled: !_isLoading,
                         decoration: const InputDecoration(
-                          hintText: 'Enter your email',
+                          hintText: 'Correo electrónico',
                           border: InputBorder.none,
                           contentPadding: EdgeInsets.symmetric(
                             horizontal: 25,
                             vertical: 18,
                           ),
+                          prefixIcon: Icon(
+                            Icons.email_outlined,
+                            color: Color(0xFF1B4F72),
+                          ),
                         ),
                       ),
                     ),
                     const SizedBox(height: 20),
+                    
+                    // ── Campo Password ──
                     Container(
                       decoration: BoxDecoration(
                         color: Colors.white,
@@ -243,17 +343,23 @@ class _LoginScreenState extends State<LoginScreen> {
                         obscureText: _obscurePassword,
                         enabled: !_isLoading,
                         decoration: InputDecoration(
-                          hintText: 'Enter password',
+                          hintText: 'Contraseña',
                           border: InputBorder.none,
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 25,
                             vertical: 18,
                           ),
+                          prefixIcon: const Icon(
+                            Icons.lock_outline,
+                            color: Color(0xFF1B4F72),
+                          ),
                           suffixIcon: Padding(
                             padding: const EdgeInsets.only(right: 10),
                             child: IconButton(
                               icon: Icon(
-                                _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                                _obscurePassword 
+                                  ? Icons.visibility_off 
+                                  : Icons.visibility,
                                 color: Colors.grey,
                               ),
                               onPressed: () {
@@ -267,6 +373,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                     const SizedBox(height: 50),
+                    
+                    // ── Botón Login ──
                     SizedBox(
                       width: double.infinity,
                       height: 55,
@@ -274,7 +382,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         onPressed: _isLoading ? null : _handleLogin,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF4A95B8),
-                          disabledBackgroundColor: const Color(0xFF4A95B8).withOpacity(0.6),
+                          disabledBackgroundColor: 
+                              const Color(0xFF4A95B8).withOpacity(0.6),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(30),
                           ),
@@ -290,13 +399,23 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                               )
                             : const Text(
-                                'Log In',
+                                'Iniciar Sesión',
                                 style: TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.white,
                                 ),
                               ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    
+                    // ── Versión ──
+                    const Text(
+                      'v1.0.0',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey,
                       ),
                     ),
                     const SizedBox(height: 25),

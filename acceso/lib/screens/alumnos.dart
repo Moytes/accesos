@@ -1,18 +1,26 @@
 import 'package:flutter/material.dart';
-import 'qralumnos.dart';
-import 'profile_screen.dart';
-import 'asistencia_materia.dart';
-import '../service/session_wrapper.dart';
-import '../service/session_service.dart';
+import '../navigation/role_router.dart';
 import '../service/api_service.dart';
+import '../service/session_service.dart';
+import '../service/session_wrapper.dart';
+import '../theme/app_colors.dart';
+import '../widgets/common_widgets.dart';
+import 'asistencia_materia.dart';
+import 'calificaciones_screens.dart';
+import 'entradas_salidas.dart';
 import 'justificantes_alumno_screen.dart';
+import 'noticias_screen.dart';
+import 'notificaciones_screen.dart';
+import 'profile_screen.dart';
+import 'psicologia_screens.dart';
+import 'qralumnos.dart';
 
-class AsistenciasScreen extends StatefulWidget {  
+class AsistenciasScreen extends StatefulWidget {
   final String userId;
   final String? nombre;
 
   const AsistenciasScreen({
-    Key? key, 
+    Key? key,
     required this.userId,
     this.nombre,
   }) : super(key: key);
@@ -26,7 +34,9 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
   final ApiService _apiService = ApiService();
   bool _isLoggingOut = false;
   bool _isLoading = true;
-  
+
+  int _notificacionesNoLeidas = 0;
+
   String? _grupo;
   List<Map<String, dynamic>> _materias = [];
 
@@ -34,15 +44,67 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
   void initState() {
     super.initState();
     _cargarDatosEstudiante();
+    _cargarNotificaciones();
+    
+    // Registrar actividad al iniciar
+    _sessionService.recordActivity();
   }
 
   @override
   void dispose() {
-    _sessionService.endSession();  
+    // Solo cerrar sesión si no está activa
+    if (!_sessionService.isSessionActive) {
+      _sessionService.endSession();
+    }
     super.dispose();
   }
 
+  // ─── CARGAR NOTIFICACIONES ────────────────────────────────────────
+  Future<void> _cargarNotificaciones() async {
+    try {
+      final count = await _apiService.contarAnunciosNoLeidos(widget.userId);
+      if (mounted) {
+        setState(() {
+          _notificacionesNoLeidas = count;
+        });
+      }
+    } catch (e) {
+      print('❌ Error cargando notificaciones: $e');
+    }
+  }
+
+  // ─── NAVEGAR A NOTIFICACIONES ─────────────────────────────────────
+  void _irANotificaciones() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => NotificacionesScreen(
+          userId: widget.userId,
+        ),
+      ),
+    ).then((_) {
+      // Al regresar, refrescar contador
+      _cargarNotificaciones();
+    });
+  }
+
+  // ─── NAVEGAR A JUSTIFICANTES ─────────────────────────────────────
+  void _irAJustificantes() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => JustificantesAlumnoScreen(
+          userId: widget.userId,
+        ),
+      ),
+    );
+  }
+
+  // ─── CARGAR DATOS DEL ESTUDIANTE ─────────────────────────────────
   Future<void> _cargarDatosEstudiante() async {
+    // Registrar actividad
+    await _sessionService.recordActivity();
+
     setState(() {
       _isLoading = true;
     });
@@ -50,23 +112,23 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
     try {
       print("========== INICIANDO CARGA DE DATOS ==========");
       print("User ID: ${widget.userId}");
-      
+
       final datos = await _apiService.getDatosEstudiante(widget.userId);
-      
+
       print("Datos recibidos: $datos");
-      
+
       if (datos != null && mounted) {
         print("Grupo: ${datos['grupo']}");
         print("Materias: ${datos['materias']}");
         print("Número de materias: ${(datos['materias'] as List).length}");
-        
+
         setState(() {
           _grupo = datos['grupo'] as String?;
           _materias = (datos['materias'] as List<dynamic>)
               .cast<Map<String, dynamic>>();
           _isLoading = false;
         });
-        
+
         print("✓ Datos cargados: Grupo $_grupo, ${_materias.length} materias");
       } else {
         setState(() {
@@ -83,6 +145,7 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
     }
   }
 
+  // ─── HANDLE LOGOUT ─────────────────────────────────────────────────
   Future<void> _handleLogout() async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -136,9 +199,11 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
         _isLoggingOut = true;
       });
 
+      // ── Cerrar sesión en API ──
       await _apiService.logout(widget.userId);
-      
-      _sessionService.endSession();
+
+      // ── Cerrar sesión local ──
+      await _sessionService.endSession();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -149,6 +214,7 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
           ),
         );
 
+        // ── Navegar al login ──
         Navigator.of(context).pushNamedAndRemoveUntil(
           '/', 
           (Route<dynamic> route) => false,
@@ -157,6 +223,7 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
     }
   }
 
+  // ─── GET CURRENT DATE ──────────────────────────────────────────────
   String _getCurrentDate() {
     final now = DateTime.now();
     final months = [
@@ -166,6 +233,7 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
     return '${now.day} de ${months[now.month - 1]} ${now.year}';
   }
 
+  // ─── GET PRIMER NOMBRE ─────────────────────────────────────────────
   String _getPrimerNombre(String? nombreCompleto) {
     if (nombreCompleto == null || nombreCompleto.isEmpty) {
       return 'Usuario';
@@ -173,6 +241,7 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
     return nombreCompleto.split(' ').first;
   }
 
+  // ─── BUILD ──────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return SessionWrapper(
@@ -181,7 +250,6 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
         body: Column(
           children: [
             _buildHeader(context),
-            
             Expanded(
               child: _isLoading
                   ? const Center(
@@ -198,12 +266,13 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
                           padding: const EdgeInsets.all(16),
                           child: Column(
                             children: [
-                              // Botón de justificaciones (UN SOLO BOTÓN)
                               _buildJustificantesButton(),
+                              const SizedBox(height: 12),
+                              _buildAccesosRapidosAlumno(),
                               const SizedBox(height: 16),
-                              
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
                                   const Text(
                                     'Registro de asistencias',
@@ -236,7 +305,6 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
                                 ),
                               ),
                               const SizedBox(height: 16),
-                              
                               Card(
                                 elevation: 4,
                                 shape: RoundedRectangleBorder(
@@ -245,21 +313,28 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
                                 child: Padding(
                                   padding: const EdgeInsets.all(20),
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       if (_materias.isEmpty)
                                         _buildEmptyState()
                                       else
-                                        ..._materias.asMap().entries.map((entry) {
+                                        ..._materias
+                                            .asMap()
+                                            .entries
+                                            .map((entry) {
                                           final index = entry.key;
                                           final materia = entry.value;
-                                          final isLast = index == _materias.length - 1;
-                                          
+                                          final isLast = index ==
+                                              _materias.length - 1;
+
                                           return AsistenciaItem(
                                             userId: widget.userId,
-                                            materia: materia['nombre'] ?? 'Sin nombre',
+                                            materia: materia['nombre'] ??
+                                                'Sin nombre',
                                             claseId: materia['id'] ?? '',
-                                            porcentaje: '${materia['porcentaje']}%',
+                                            porcentaje:
+                                                '${materia['porcentaje']}%',
                                             isLast: isLast,
                                             grupo: _grupo ?? 'Sin grupo',
                                             docente: materia['docente'],
@@ -281,21 +356,14 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
     );
   }
 
+  // ─── BUILD JUSTIFICANTES BUTTON ──────────────────────────────────
   Widget _buildJustificantesButton() {
     return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => JustificantesAlumnoScreen(
-              userId: widget.userId,
-            ),
-          ),
-        );
-      },
+      onTap: _irAJustificantes,
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
+        padding:
+            const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
         decoration: BoxDecoration(
           gradient: const LinearGradient(
             colors: [Color(0xFF003366), Color(0xFF0055A0)],
@@ -340,6 +408,7 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
     );
   }
 
+  // ─── BUILD EMPTY STATE ─────────────────────────────────────────────
   Widget _buildEmptyState() {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 40),
@@ -373,36 +442,123 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
-    return Stack(
+  Widget _buildAccesosRapidosAlumno() {
+    return Row(
       children: [
-        Container(
-          height: 280,
-          decoration: BoxDecoration(
-            image: DecorationImage(
-              image: NetworkImage(
-                'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR86wguF7Jnm9XV-S7qtwyVHxKi3BBA792Lgw&s',
-              ),
-              fit: BoxFit.cover,
-              colorFilter: ColorFilter.mode(
-                Colors.black.withOpacity(0.3),
-                BlendMode.darken,
+        Expanded(
+          child: _miniModuleTile(
+            icon: Icons.school_outlined,
+            label: 'Kárdex',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => KardexAlumnoScreen(
+                  alumnoId: widget.userId,
+                  nombreAlumno: widget.nombre,
+                ),
               ),
             ),
           ),
         ),
-        Container(
-          height: 280,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                const Color(0xFF003366).withOpacity(0.8),
-                const Color(0xFF003366).withOpacity(0.4),
-              ],
+        const SizedBox(width: 8),
+        Expanded(
+          child: _miniModuleTile(
+            icon: Icons.psychology_outlined,
+            label: 'Psicología',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => CitasAlumnoScreen(
+                  alumnoId: widget.userId,
+                  nombreAlumno: widget.nombre,
+                ),
+              ),
             ),
           ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _miniModuleTile(
+            icon: Icons.newspaper_outlined,
+            label: 'Noticias',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const NoticiasFeedScreen(),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _miniModuleTile(
+            icon: Icons.door_sliding_outlined,
+            label: 'Accesos',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => EntradasSalidasScreen(
+                  userIdFilter: widget.userId,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _miniModuleTile({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: AppColors.primaryDark, size: 22),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                color: AppColors.primaryDark,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─── BUILD HEADER ──────────────────────────────────────────────────
+  Widget _buildHeader(BuildContext context) {
+    return Stack(
+      children: [
+        const SafeHeaderBanner(
+          height: 280,
+          gradientColors: [
+            Color(0xCC003366),
+            Color(0x66003366),
+          ],
         ),
         SafeArea(
           child: Column(
@@ -426,6 +582,12 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
                     ),
                     Row(
                       children: [
+                        RoleSwitcherButton(
+                          currentRole: 'alumno',
+                          userId: widget.userId,
+                          nombre: widget.nombre,
+                        ),
+                        // ── Botón Perfil ──
                         IconButton(
                           onPressed: () {
                             Navigator.push(
@@ -445,8 +607,53 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
                           ),
                           tooltip: 'Perfil',
                         ),
+
+                        // ── Campana con badge ──
+                        Stack(
+                          children: [
+                            IconButton(
+                              onPressed: _irANotificaciones,
+                              icon: const Icon(
+                                Icons.notifications_outlined,
+                                color: Colors.white,
+                                size: 30,
+                              ),
+                              tooltip: 'Notificaciones',
+                            ),
+                            if (_notificacionesNoLeidas > 0)
+                              Positioned(
+                                right: 6,
+                                top: 6,
+                                child: Container(
+                                  padding: const EdgeInsets.all(3),
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFFFF3D00),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  constraints: const BoxConstraints(
+                                    minWidth: 18,
+                                    minHeight: 18,
+                                  ),
+                                  child: Text(
+                                    _notificacionesNoLeidas > 99
+                                        ? '99+'
+                                        : '$_notificacionesNoLeidas',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+
+                        // ── Botón Cerrar sesión ──
                         IconButton(
-                          onPressed: _isLoggingOut ? null : _handleLogout,
+                          onPressed:
+                              _isLoggingOut ? null : _handleLogout,
                           icon: _isLoggingOut
                               ? const SizedBox(
                                   width: 20,
@@ -532,7 +739,8 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => QRScreen(userId: widget.userId),
+                              builder: (context) =>
+                                  QRScreen(userId: widget.userId),
                             ),
                           );
                         },
@@ -578,6 +786,7 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
   }
 }
 
+// ─── ASISTENCIA ITEM ──────────────────────────────────────────────────
 class AsistenciaItem extends StatelessWidget {
   final String userId;
   final String materia;
@@ -600,12 +809,16 @@ class AsistenciaItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final porcentajeNum = int.tryParse(porcentaje.replaceAll('%', '')) ?? 0;
-    
+    final porcentajeNum =
+        int.tryParse(porcentaje.replaceAll('%', '')) ?? 0;
+
     return Column(
       children: [
         InkWell(
           onTap: () {
+            // Registrar actividad al navegar
+            SessionService().recordActivity();
+            
             Navigator.push(
               context,
               MaterialPageRoute(

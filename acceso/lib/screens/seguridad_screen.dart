@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../navigation/role_router.dart';
 import '../service/api_service.dart';
 import '../service/session_service.dart';
 import '../service/session_wrapper.dart';
+import 'entradas_salidas.dart';
+import 'gestion_institucional_screen.dart';
 import 'profile_screen.dart';
 import 'qralumnos.dart';
+import 'visitas_screen.dart';
 
 class SeguridadScreen extends StatefulWidget {
   final String userId;
@@ -54,7 +58,9 @@ class _SeguridadScreenState extends State<SeguridadScreen>
   void dispose() {
     _refreshTimer?.cancel();
     _pulseController.dispose();
-    _sessionService.endSession();
+    if (!_sessionService.isSessionActive) {
+      _sessionService.endSession();
+    }
     super.dispose();
   }
 
@@ -207,9 +213,49 @@ class _SeguridadScreenState extends State<SeguridadScreen>
                   ]),
                 ]),
                 Row(children: [
+                  RoleSwitcherButton(
+                    currentRole: 'seguridad',
+                    userId: widget.userId,
+                    nombre: widget.nombre,
+                    iconColor: Colors.white70,
+                  ),
+                  IconButton(
+                    tooltip: 'Accesos en vivo',
+                    icon: const Icon(Icons.fact_check_outlined,
+                        color: Color(0xFF4FC3F7), size: 24),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const EntradasSalidasScreen(),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Visitas hoy',
+                    icon: const Icon(Icons.badge_outlined,
+                        color: Color(0xFF66BB6A), size: 24),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => VisitasScreen(adminId: widget.userId),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Zonas e IoT',
+                    icon: const Icon(Icons.sensors,
+                        color: Color(0xFF42A5F5), size: 24),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            const GestionInstitucionalScreen(initialTab: 2),
+                      ),
+                    ),
+                  ),
                   IconButton(
                     icon: const Icon(Icons.account_circle,
-                        color: Colors.white70, size: 28),
+                        color: Colors.white70, size: 26),
                     onPressed: () => Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -219,7 +265,7 @@ class _SeguridadScreenState extends State<SeguridadScreen>
                   ),
                   IconButton(
                     icon: const Icon(Icons.qr_code,
-                        color: Colors.white70, size: 26),
+                        color: Colors.white70, size: 24),
                     onPressed: () => Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -235,7 +281,7 @@ class _SeguridadScreenState extends State<SeguridadScreen>
                             child: CircularProgressIndicator(
                                 color: Colors.white, strokeWidth: 2))
                         : const Icon(Icons.logout,
-                            color: Colors.white70, size: 26),
+                            color: Colors.white70, size: 24),
                   ),
                 ]),
               ],

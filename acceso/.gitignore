@@ -43,3 +43,43 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# ── Seguridad y archivos sensibles de la app móvil ──
+# Firebase / Google Services
+**/google-services.json
+**/GoogleService-Info.plist
+**/firebase_options.dart
+.firebase/
+**/service-account*.json
+**/*firebase-adminsdk*.json
+
+# Variables de entorno y secretos locales
+.env
+.env.*
+!.env.example
+*.secret
+secrets/
+
+# Llaves de firma y certificados (Android / iOS)
+**/key.properties
+**/*.jks
+**/*.keystore
+**/*.p12
+**/*.p8
+**/*.pem
+**/*.key
+**/*.cer
+**/*.mobileprovision
+
+# Configuración local de máquina y cachés
+**/local.properties
+**/.gradle/
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/Pods/
+
+# Paquetes compilados
+*.apk
+*.aab
+*.ipa
+

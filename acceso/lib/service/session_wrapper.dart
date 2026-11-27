@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
-import 'session_service.dart';
 import '../screens/login_screen.dart';
+import '../theme/app_colors.dart';
+import '../widgets/common_widgets.dart';
+import 'session_service.dart';
 
 class SessionWrapper extends StatefulWidget {
   final Widget child;
@@ -11,8 +13,10 @@ class SessionWrapper extends StatefulWidget {
   State<SessionWrapper> createState() => _SessionWrapperState();
 }
 
-class _SessionWrapperState extends State<SessionWrapper> with WidgetsBindingObserver {
+class _SessionWrapperState extends State<SessionWrapper>
+    with WidgetsBindingObserver {
   final SessionService _sessionService = SessionService();
+  bool _expiredDialogVisible = false;
 
   @override
   void initState() {
@@ -35,30 +39,40 @@ class _SessionWrapperState extends State<SessionWrapper> with WidgetsBindingObse
   }
 
   void _handleSessionExpired() {
-    if (mounted) {
-      _sessionService.endSession();
-      
-      // Mostrar diálogo de sesión expirada
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          title: const Text('Sesión Expirada'),
-          content: const Text(
-            'Tu sesión ha expirado por inactividad. Por favor, inicia sesión nuevamente.',
+    if (!mounted || _expiredDialogVisible) return;
+    _expiredDialogVisible = true;
+    _sessionService.endSession();
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        title: const Text(
+          'Sesión Expirada',
+          style: TextStyle(
+            color: AppColors.primaryDark,
+            fontWeight: FontWeight.bold,
           ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                _navigateToLogin();
-              },
-              child: const Text('Aceptar'),
-            ),
-          ],
         ),
-      );
-    }
+        content: const Text(
+          'Tu sesión ha expirado por inactividad. Por favor, inicia sesión nuevamente.',
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _navigateToLogin();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primaryDark,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Aceptar'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _navigateToLogin() {
@@ -74,7 +88,22 @@ class _SessionWrapperState extends State<SessionWrapper> with WidgetsBindingObse
       onTap: () => _sessionService.recordActivity(),
       onPanDown: (_) => _sessionService.recordActivity(),
       behavior: HitTestBehavior.translucent,
-      child: widget.child,
+      child: Stack(
+        children: [
+          widget.child,
+          const Positioned(
+            left: 16,
+            right: 16,
+            bottom: 12,
+            child: SafeArea(
+              top: false,
+              child: Center(
+                child: OfflineStatusBanner(),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

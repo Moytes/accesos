@@ -1,7 +1,13 @@
+import 'dart:io';
+import 'package:excel/excel.dart' as xl;
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import '../navigation/role_router.dart';
 import '../service/api_service.dart';
 import '../service/session_wrapper.dart';
 import 'materias.dart';
+import 'noticias_screen.dart';
 import 'justificantes_tutor_screen.dart'; // Import agregado
 
 class TutorScreen extends StatefulWidget {
@@ -81,6 +87,80 @@ class _TutorScreenState extends State<TutorScreen> {
           elevation: 0,
           iconTheme: const IconThemeData(color: Colors.white),
           actions: [
+            RoleSwitcherButton(
+              currentRole: 'tutor',
+              userId: widget.userId,
+              nombre: widget.nombre,
+            ),
+            IconButton(
+              icon: const Icon(Icons.download, color: Colors.white),
+              tooltip: 'Exportar reporte de asistencias',
+              onPressed: () async {
+                final grupo = _grupos.isNotEmpty
+                    ? (_grupos.first['grupo'] ?? _grupos.first['codigo'])
+                        ?.toString()
+                    : null;
+                final rows = await _apiService.exportarReporteAsistencias(
+                  grupo: grupo,
+                );
+                if (!context.mounted) return;
+                if (rows.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        _apiService.lastError ??
+                            'No hay registros disponibles para exportar.',
+                      ),
+                    ),
+                  );
+                  return;
+                }
+                final excel = xl.Excel.createExcel();
+                const name = 'Tutorias';
+                excel.rename('Sheet1', name);
+                final sheet = excel[name];
+                final cols = rows.first.keys.toList();
+                for (int c = 0; c < cols.length; c++) {
+                  sheet
+                      .cell(xl.CellIndex.indexByColumnRow(
+                        columnIndex: c,
+                        rowIndex: 0,
+                      ))
+                      .value = cols[c];
+                }
+                for (int r = 0; r < rows.length; r++) {
+                  for (int c = 0; c < cols.length; c++) {
+                    sheet
+                        .cell(xl.CellIndex.indexByColumnRow(
+                          columnIndex: c,
+                          rowIndex: r + 1,
+                        ))
+                        .value = rows[r][cols[c]]?.toString() ?? '';
+                  }
+                }
+                final bytes = excel.encode();
+                if (bytes != null) {
+                  final dir = await getTemporaryDirectory();
+                  final file =
+                      '${dir.path}/reporte_tutor_${DateTime.now().millisecondsSinceEpoch}.xlsx';
+                  await File(file).writeAsBytes(bytes, flush: true);
+                  if (!context.mounted) return;
+                  await Share.shareXFiles([XFile(file)]);
+                }
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.newspaper, color: Colors.white),
+              tooltip: 'Noticias Institucionales',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const NoticiasFeedScreen(),
+                  ),
+                );
+              },
+            ),
             // Botón de justificantes con contador
             Stack(
               children: [

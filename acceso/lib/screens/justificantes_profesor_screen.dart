@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import '../service/api_service.dart';
 import '../service/session_wrapper.dart';
+import '../theme/app_colors.dart';
+import '../widgets/common_widgets.dart';
 
-// ============================================================
-// PANTALLA DE JUSTIFICANTES PARA EL PROFESOR
-// ============================================================
 class JustificantesProfesorScreen extends StatefulWidget {
   final String profesorId;
   final String materiaNombre;
@@ -12,12 +11,12 @@ class JustificantesProfesorScreen extends StatefulWidget {
   final String claseId;
 
   const JustificantesProfesorScreen({
-    Key? key,
+    super.key,
     required this.profesorId,
     required this.materiaNombre,
     required this.grupo,
     required this.claseId,
-  }) : super(key: key);
+  });
 
   @override
   State<JustificantesProfesorScreen> createState() =>
@@ -29,496 +28,275 @@ class _JustificantesProfesorScreenState
   final ApiService _apiService = ApiService();
   List<Map<String, dynamic>> _justificantes = [];
   bool _isLoading = true;
-  String? _errorMessage;
+  bool _soloEstaClase = true;
 
   @override
   void initState() {
     super.initState();
-    _cargarJustificantes();
+    _cargar();
   }
 
-  Future<void> _cargarJustificantes() async {
+  Future<void> _cargar() async {
+    setState(() => _isLoading = true);
+    final list = await _apiService.getJustificantesAprobadosByProfesor(
+      widget.profesorId,
+    );
     if (!mounted) return;
-    
     setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-    
-    try {
-      final lista = await _apiService
-          .getJustificantesAprobadosByProfesor(widget.profesorId);
-      
-      if (mounted) {
-        setState(() {
-          _justificantes = lista;
-          _isLoading = false;
-        });
-        print('✅ Justificantes cargados: ${lista.length}');
-      }
-    } catch (e) {
-      print('❌ Error al cargar justificantes: $e');
-      if (mounted) {
-        setState(() {
-          _errorMessage = 'Error al cargar los justificantes';
-          _isLoading = false;
-        });
-      }
-    }
-  }
-
-  // ── CORRECCIÓN: Usar la misma estructura que funciona en el tutor ──
-  Future<void> _mostrarDialogoConfirmacion(
-      Map<String, dynamic> justificante, bool aceptado) async {
-    final titulo = aceptado ? 'Justificar falta' : 'No aceptar justificante';
-    final mensaje = aceptado
-        ? '¿Confirmas que deseas cambiar las faltas de este alumno a asistencia justificada?'
-        : '¿Confirmas que no aceptas este justificante? Las faltas se mantendrán.';
-    final colorBoton =
-        aceptado ? const Color(0xFF4CAF50) : const Color(0xFFF44336);
-    final textoBoton = aceptado ? 'Sí, justificar' : 'No aceptar';
-
-    await showDialog(
-      context: context,
-      builder: (ctx) => Dialog(
-        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.85,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Título
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                child: Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        'Confirmar acción',
-                        style: TextStyle(
-                          color: Color(0xFF004C8C),
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.of(ctx).pop(),
-                      icon: const Icon(Icons.close, color: Colors.grey),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(),
-
-              // Contenido scrollable
-              Flexible(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const SizedBox(height: 8),
-
-                      // Info alumno
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF004C8C).withOpacity(0.06),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                const Icon(Icons.person,
-                                    size: 16, color: Color(0xFF004C8C)),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: Text(
-                                    justificante['users']?['nombre'] ??
-                                        'Sin nombre',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF004C8C),
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Matrícula: ${justificante['users']?['matricula'] ?? 'N/A'}',
-                              style: TextStyle(
-                                  fontSize: 12, color: Colors.grey[600]),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-
-                      Text(
-                        justificante['titulo'] ?? '',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        justificante['asunto'] ?? '',
-                        style:
-                            TextStyle(color: Colors.grey[700], fontSize: 13),
-                      ),
-                      const SizedBox(height: 12),
-
-                      Text(
-                        'Fechas solicitadas:',
-                        style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.grey[700]),
-                      ),
-                      const SizedBox(height: 6),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 4,
-                        children:
-                            (justificante['fechas_faltas'] as String? ?? '')
-                                .split(',')
-                                .where((f) => f.isNotEmpty)
-                                .map((f) => Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFF004C8C)
-                                            .withOpacity(0.1),
-                                        borderRadius:
-                                            BorderRadius.circular(6),
-                                      ),
-                                      child: Text(
-                                        f,
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          color: Color(0xFF004C8C),
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                    ))
-                                .toList(),
-                      ),
-
-                      // Imágenes - Usando el mismo método que funciona en el tutor
-                      if ((justificante['imagen_url'] as String? ?? '')
-                          .isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        Text(
-                          'Evidencias adjuntas:',
-                          style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.grey[700]),
-                        ),
-                        const SizedBox(height: 8),
-                        _buildImagenesPreview(
-                            justificante['imagen_url'] as String),
-                      ],
-
-                      const SizedBox(height: 16),
-                      Text(
-                        mensaje,
-                        style: TextStyle(color: Colors.grey[700], fontSize: 13),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-                  ),
-                ),
-              ),
-
-              // Botones de acción fuera del scroll
-              const Divider(height: 1),
-              Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: () => Navigator.of(ctx).pop(false),
-                      child: Text('Cancelar',
-                          style: TextStyle(color: Colors.grey[600])),
-                    ),
-                    const SizedBox(width: 8),
-                    ElevatedButton(
-                      onPressed: () {
-                        Navigator.of(ctx).pop(true);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: colorBoton,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8)),
-                      ),
-                      child: Text(textoBoton,
-                          style: const TextStyle(
-                              color: Colors.white, fontWeight: FontWeight.bold)),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    ).then((confirm) async {
-      if (confirm == true && mounted) {
-        await _procesarJustificante(justificante, aceptado);
-      }
+      _justificantes = list;
+      _isLoading = false;
     });
   }
 
-  // ── Usar EXACTAMENTE el mismo método que funciona en el tutor ──
-  Widget _buildImagenesPreview(String imagenesStr) {
-    final urls =
-        imagenesStr.split(',').where((u) => u.isNotEmpty).toList();
-    if (urls.isEmpty) return const SizedBox.shrink();
-
-    return SizedBox(
-      height: 80,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        physics: const ClampingScrollPhysics(),
-        shrinkWrap: true,
-        itemCount: urls.length,
-        itemBuilder: (context, index) {
-          return GestureDetector(
-            onTap: () {
-              showDialog(
-                context: context,
-                builder: (ctx) => Dialog(
-                  backgroundColor: Colors.black,
-                  child: InteractiveViewer(
-                    child: Image.network(
-                      urls[index],
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => const Center(
-                        child: Icon(Icons.broken_image,
-                            size: 80, color: Colors.white),
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            },
-            child: Container(
-              margin: const EdgeInsets.only(right: 8),
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey[300]!),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.network(
-                  urls[index],
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const Icon(
-                    Icons.broken_image,
-                    color: Colors.grey,
-                  ),
-                  loadingBuilder: (context, child, loadingProgress) {
-                    if (loadingProgress == null) return child;
-                    return const Center(
-                      child:
-                          CircularProgressIndicator(strokeWidth: 2),
-                    );
-                  },
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
+  List<Map<String, dynamic>> get _itemsFiltrados {
+    if (!_soloEstaClase || widget.claseId.isEmpty) return _justificantes;
+    return _justificantes.where((j) {
+      final detalles = j['detalles'];
+      if (detalles is List) {
+        return detalles.any(
+          (d) =>
+              d is Map &&
+              (d['clase_id']?.toString() == widget.claseId ||
+                  d['materia_id']?.toString() == widget.claseId),
+        );
+      }
+      final cids = j['clase_ids'] ?? j['claseIds'];
+      if (cids is List) {
+        return cids.map((e) => e.toString()).contains(widget.claseId);
+      }
+      return true;
+    }).toList();
   }
 
-  Future<void> _procesarJustificante(
-      Map<String, dynamic> justificante, bool aceptado) async {
-    // Mostrar diálogo de carga
-    showDialog(
+  Future<String?> _pedirComentario(bool aceptar) async {
+    String texto = '';
+    final ok = await showDialog<bool>(
       context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(
-        child: Card(
-          child: Padding(
-            padding: EdgeInsets.all(20.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 16),
-                Text('Procesando justificante...'),
-              ],
-            ),
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          aceptar ? 'Aplicar justificación' : 'No aplicar justificación',
+        ),
+        content: TextField(
+          maxLines: 3,
+          onChanged: (v) => texto = v,
+          decoration: const InputDecoration(
+            labelText: 'Comentario docente (opcional)',
+            border: OutlineInputBorder(),
           ),
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor:
+                  aceptar ? AppColors.success : AppColors.dangerRed,
+              foregroundColor: Colors.white,
+            ),
+            child: Text(aceptar ? 'Aplicar' : 'Rechazar'),
+          ),
+        ],
       ),
     );
+    if (ok != true) return null;
+    return texto.trim();
+  }
 
-    final userId = justificante['user_id'] as String;
-    final fechas = (justificante['fechas_faltas'] as String? ?? '')
-        .split(',')
-        .where((f) => f.isNotEmpty)
-        .map((f) => f.trim())
-        .toList();
+  Future<void> _dictaminarDetalle(
+    Map<String, dynamic> detalle,
+    bool aceptar,
+  ) async {
+    final comentario = await _pedirComentario(aceptar);
+    if (comentario == null || !mounted) return;
 
-    final clasesDeLaTarjeta = justificante['clases_del_profesor'] as List?;
-    List<String> claseIds;
-    if (clasesDeLaTarjeta != null && clasesDeLaTarjeta.isNotEmpty) {
-      claseIds = clasesDeLaTarjeta
-          .map((c) => c['clase_id'] as String)
-          .toList();
-    } else {
-      claseIds = [justificante['clase_id'] as String? ?? ''];
-    }
+    final detalleId = detalle['id']?.toString() ?? '';
+    final ok = await _apiService.dictaminarDetalleJustificante(
+      detalleId: detalleId,
+      estadoProfesor: aceptar ? 'aplicado' : 'rechazado',
+      comentario: comentario,
+    );
+    if (!mounted) return;
 
-    bool resultado = false;
-    try {
-      resultado = await _apiService.aplicarJustificanteGeneral(
-        justificanteId: justificante['id'],
-        userId: userId,
-        claseIds: claseIds,
-        fechas: fechas,
-        aceptado: aceptado,
+    if (ok) {
+      final queued = _apiService.lastMutationQueuedOffline;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            queued
+                ? 'Dictamen guardado offline. Se sincronizará al conectarse.'
+                : (aceptar
+                    ? 'Asistencia marcada como justificada.'
+                    : 'Detalle rechazado.'),
+          ),
+          backgroundColor: queued ? AppColors.warning : AppColors.success,
+        ),
       );
-    } catch (e) {
-      print('❌ Error en _procesarJustificante: $e');
-      resultado = false;
-    }
-
-    // Cerrar diálogo de carga
-    if (mounted) {
-      Navigator.of(context).pop();
-    }
-
-    if (mounted) {
-      if (resultado) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              aceptado
-                  ? '✓ Asistencia justificada correctamente'
-                  : 'Justificante marcado como no aceptado',
-            ),
-            backgroundColor: const Color(0xFF4CAF50),
-            duration: const Duration(seconds: 2),
-          ),
-        );
-        await _cargarJustificantes();
+      if (queued) {
+        setState(() {
+          detalle['estado_profesor'] = aceptar ? 'aplicado' : 'rechazado';
+        });
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Error al procesar el justificante'),
-            backgroundColor: Colors.red,
-            duration: Duration(seconds: 3),
-          ),
-        );
+        await _cargar();
       }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _apiService.lastError ?? 'Error dictaminando justificante.',
+          ),
+          backgroundColor: AppColors.dangerRed,
+        ),
+      );
+    }
+  }
+
+  Future<void> _aplicarGeneral(
+    Map<String, dynamic> j,
+    bool aceptar,
+  ) async {
+    final comentario = await _pedirComentario(aceptar);
+    if (comentario == null || !mounted) return;
+
+    final rawFechas = j['fechas_faltas'] ?? j['fechasFaltas'];
+    final fechas = rawFechas is List
+        ? rawFechas.map((e) => e.toString()).toList()
+        : (rawFechas?.toString() ?? '')
+            .split(',')
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
+
+    final cidsRaw = j['clase_ids'] ?? j['claseIds'];
+    final claseIds = cidsRaw is List
+        ? cidsRaw.map((e) => e.toString()).toList()
+        : [widget.claseId];
+
+    final ok = await _apiService.aplicarJustificanteGeneral(
+      justificanteId: j['id']?.toString() ?? '',
+      userId: (j['user_id'] ?? j['userId'] ?? '').toString(),
+      claseIds: claseIds,
+      fechas: fechas,
+      aceptado: aceptar,
+      comentario: comentario,
+    );
+    if (!mounted) return;
+
+    if (ok) {
+      final queued = _apiService.lastMutationQueuedOffline;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            queued
+                ? 'Dictamen en cola offline. Se aplicará al reconectar.'
+                : (aceptar
+                    ? 'Justificación aplicada a la asistencia.'
+                    : 'Justificación marcada como no aceptada.'),
+          ),
+          backgroundColor: queued ? AppColors.warning : AppColors.success,
+        ),
+      );
+      if (!queued) await _cargar();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _apiService.lastError ?? 'No se pudo procesar el justificante.',
+          ),
+          backgroundColor: AppColors.dangerRed,
+        ),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final items = _itemsFiltrados;
     return SessionWrapper(
       child: Scaffold(
-        backgroundColor: const Color(0xFFE8E8E8),
+        backgroundColor: AppColors.surfaceLight,
         appBar: AppBar(
-          title: const Text(
-            'Justificantes',
-            style: TextStyle(
-                color: Colors.white, fontWeight: FontWeight.bold),
+          backgroundColor: AppColors.primaryDark,
+          foregroundColor: Colors.white,
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Justificantes Aprobados', style: TextStyle(fontSize: 17)),
+              Text(
+                '${widget.materiaNombre} · Grupo ${widget.grupo}',
+                style: const TextStyle(fontSize: 12, color: Colors.white70),
+              ),
+            ],
           ),
-          backgroundColor: const Color(0xFF004C8C),
-          iconTheme: const IconThemeData(color: Colors.white),
-          elevation: 0,
+          actions: [
+            IconButton(icon: const Icon(Icons.refresh), onPressed: _cargar),
+          ],
         ),
         body: Column(
           children: [
-            // Header informativo
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFF004C8C), Color(0xFF4A9FD8)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+            if (widget.claseId.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+                child: Row(
+                  children: [
+                    ChoiceChip(
+                      label: const Text('Esta clase'),
+                      selected: _soloEstaClase,
+                      selectedColor: AppColors.primaryDark,
+                      labelStyle: TextStyle(
+                        color: _soloEstaClase
+                            ? Colors.white
+                            : AppColors.primaryDark,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      onSelected: (_) => setState(() => _soloEstaClase = true),
+                    ),
+                    const SizedBox(width: 8),
+                    ChoiceChip(
+                      label: Text('Todas (${_justificantes.length})'),
+                      selected: !_soloEstaClase,
+                      selectedColor: AppColors.primaryDark,
+                      labelStyle: TextStyle(
+                        color: !_soloEstaClase
+                            ? Colors.white
+                            : AppColors.primaryDark,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      onSelected: (_) => setState(() => _soloEstaClase = false),
+                    ),
+                  ],
                 ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.book, color: Colors.white70, size: 16),
-                      const SizedBox(width: 6),
-                      Text(
-                        widget.materiaNombre,
-                        style: const TextStyle(
-                            color: Colors.white70, fontSize: 13),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      const Icon(Icons.groups, color: Colors.white70, size: 16),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Grupo ${widget.grupo}',
-                        style: const TextStyle(
-                            color: Colors.white70, fontSize: 13),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.info_outline,
-                            color: Colors.white, size: 16),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Estos justificantes ya fueron aprobados por el tutor. '
-                            'Puedes aceptarlos para cambiar la falta a asistencia justificada.',
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 12),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Cuerpo principal
             Expanded(
-              child: _buildBody(),
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : RefreshIndicator(
+                      onRefresh: _cargar,
+                      child: items.isEmpty
+                          ? ListView(
+                              padding: const EdgeInsets.all(32),
+                              children: [
+                                Icon(
+                                  Icons.assignment_turned_in_outlined,
+                                  size: 60,
+                                  color: Colors.grey[400],
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'No hay justificantes aprobados pendientes por aplicar.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: Colors.grey[600]),
+                                ),
+                              ],
+                            )
+                          : ListView.builder(
+                              padding: const EdgeInsets.all(14),
+                              itemCount: items.length,
+                              itemBuilder: (ctx, i) => _buildCard(items[i]),
+                            ),
+                    ),
             ),
           ],
         ),
@@ -526,116 +304,50 @@ class _JustificantesProfesorScreenState
     );
   }
 
-  Widget _buildBody() {
-    if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(color: Color(0xFF004C8C)),
-      );
-    }
+  Widget _buildCard(Map<String, dynamic> j) {
+    final alumno =
+        (j['alumno_nombre'] ?? j['alumnoNombre'] ?? 'Alumno').toString();
+    final matricula = (j['matricula'] ?? '').toString();
+    final titulo = (j['titulo'] ?? 'Justificante').toString();
+    final asunto = (j['asunto'] ?? '').toString();
+    final comentarioTutor =
+        (j['comentario_tutor'] ?? j['comentarioTutor'] ?? '').toString();
+    final rawUrls = (j['imagenes_urls'] ??
+            j['imagenesUrls'] ??
+            j['evidencia_url'] ??
+            '')
+        .toString();
+    final rawDetalles = j['detalles'];
+    final detalles = rawDetalles is List
+        ? rawDetalles
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .where(
+              (d) =>
+                  !_soloEstaClase ||
+                  widget.claseId.isEmpty ||
+                  d['clase_id']?.toString() == widget.claseId,
+            )
+            .toList()
+        : <Map<String, dynamic>>[];
 
-    if (_errorMessage != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline, size: 60, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              _errorMessage!,
-              style: TextStyle(color: Colors.grey[600]),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _cargarJustificantes,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF004C8C),
-              ),
-              child: const Text('Reintentar'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (_justificantes.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.check_circle_outline, size: 70, color: Colors.grey[300]),
-            const SizedBox(height: 16),
-            Text(
-              'No hay justificantes pendientes',
-              style: TextStyle(
-                color: Colors.grey[600],
-                fontSize: 18,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Todos los justificantes han sido procesados',
-              style: TextStyle(color: Colors.grey[400], fontSize: 13),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return RefreshIndicator(
-      onRefresh: _cargarJustificantes,
-      color: const Color(0xFF004C8C),
-      child: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _justificantes.length,
-        itemBuilder: (context, index) {
-          return _buildJustificanteCard(_justificantes[index]);
-        },
-      ),
-    );
-  }
-
-  Widget _buildJustificanteCard(Map<String, dynamic> j) {
-    final estado = j['estado'] as String? ?? 'aprobado';
-    final isAprobado = estado == 'aprobado';
-    final userData = j['users'] as Map<String, dynamic>?;
-    final fechas = (j['fechas_faltas'] as String? ?? '').split(',');
-    final imagenes = (j['imagen_url'] as String? ?? '').split(',');
-    final tieneImagenes = imagenes.isNotEmpty && imagenes.first.isNotEmpty;
-
-    return Container(
+    return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-        border: isAprobado
-            ? Border.all(
-                color: const Color(0xFF4CAF50).withOpacity(0.4),
-                width: 1.5)
-            : null,
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      color: Colors.white,
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(15),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF004C8C).withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(8),
+                CircleAvatar(
+                  backgroundColor: AppColors.primary,
+                  child: Text(
+                    alumno.isNotEmpty ? alumno[0].toUpperCase() : 'A',
+                    style: const TextStyle(color: Colors.white),
                   ),
-                  child: const Icon(Icons.person,
-                      color: Color(0xFF004C8C), size: 20),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -643,208 +355,188 @@ class _JustificantesProfesorScreenState
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        userData?['nombre'] ?? 'Sin nombre',
+                        alumno,
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
-                          fontSize: 15,
-                          color: Color(0xFF004C8C),
+                          fontSize: 15.5,
+                          color: AppColors.primaryDark,
                         ),
                       ),
-                      Text(
-                        'Matrícula: ${userData?['matricula'] ?? 'N/A'}',
-                        style: TextStyle(
-                            fontSize: 11, color: Colors.grey[500]),
-                      ),
+                      if (matricula.isNotEmpty)
+                        Text(
+                          'Matrícula: $matricula',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
                     ],
                   ),
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF4CAF50).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                        color: const Color(0xFF4CAF50), width: 1),
+                    horizontal: 8,
+                    vertical: 4,
                   ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.verified,
-                          size: 12, color: Color(0xFF4CAF50)),
-                      SizedBox(width: 3),
-                      Text(
-                        'Tutor aprobó',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: Color(0xFF4CAF50),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
+                  decoration: BoxDecoration(
+                    color: AppColors.success.withOpacity(0.14),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Text(
+                    'AVAL TUTOR',
+                    style: TextStyle(
+                      color: AppColors.successDark,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 10.5,
+                    ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const Divider(height: 18),
             Text(
-              j['titulo'] ?? '',
-              style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                  color: Colors.black87),
+              titulo,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5),
             ),
-            const SizedBox(height: 4),
-            Text(
-              j['asunto'] ?? '',
-              style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey[600],
-                  height: 1.3),
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 6,
-              runSpacing: 4,
-              children: fechas
-                  .where((f) => f.isNotEmpty)
-                  .map((f) => Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF004C8C)
-                              .withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          f,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Color(0xFF004C8C),
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ))
-                  .toList(),
-            ),
-            if (tieneImagenes) ...[
+            if (asunto.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(asunto, style: TextStyle(color: Colors.grey[800])),
+            ],
+            if (comentarioTutor.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Tutoría: $comentarioTutor',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontStyle: FontStyle.italic,
+                  color: Colors.grey[700],
+                ),
+              ),
+            ],
+            if (rawUrls.isNotEmpty) ...[
               const SizedBox(height: 10),
-              Row(
-                children: [
-                  Icon(Icons.attach_file,
-                      size: 14, color: Colors.grey[500]),
-                  const SizedBox(width: 4),
-                  Text(
-                    '${imagenes.where((i) => i.isNotEmpty).length} evidencia(s)',
-                    style: TextStyle(
-                        fontSize: 12, color: Colors.grey[500]),
+              EvidencePreviewStrip(rawUrlsCsv: rawUrls),
+            ],
+            if (detalles.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const Text(
+                'Sesiones incluidas:',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.primaryDark,
+                ),
+              ),
+              const SizedBox(height: 6),
+              ...detalles.map((d) {
+                final est = (d['estado_profesor'] ??
+                        d['estadoProfesor'] ??
+                        'pendiente')
+                    .toString();
+                final mat = (d['materia_nombre'] ??
+                        d['materiaNombre'] ??
+                        widget.materiaNombre)
+                    .toString();
+                final fecha =
+                    (d['fecha_falta'] ?? d['fechaFalta'] ?? '').toString();
+                final hasId = (d['id']?.toString() ?? '').isNotEmpty;
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceSoftBlue,
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: () {
-                      showDialog(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: const Text('Evidencias'),
-                          content: Container(
-                            width: 300,
-                            height: 300,
-                            child: _buildImagenesPreview(j['imagen_url'] as String),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '$mat · $fecha',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
                           ),
-                          actions: [
-                            TextButton(
-                              onPressed: () =>
-                                  Navigator.of(ctx).pop(),
-                              child: const Text('Cerrar'),
+                          Text(
+                            est.toUpperCase(),
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: est == 'aplicado'
+                                  ? AppColors.successDark
+                                  : (est == 'rechazado'
+                                      ? AppColors.dangerRed
+                                      : AppColors.warning),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (est == 'pendiente' && hasId) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => _dictaminarDetalle(d, false),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppColors.dangerRed,
+                                  side: const BorderSide(
+                                    color: AppColors.dangerRed,
+                                  ),
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                                child: const Text('Rechazar'),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: () => _dictaminarDetalle(d, true),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.success,
+                                  foregroundColor: Colors.white,
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                                child: const Text('Aplicar Justificación'),
+                              ),
                             ),
                           ],
                         ),
-                      );
-                    },
-                    child: const Text(
-                      'Ver imágenes',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF4A9FD8),
-                        decoration: TextDecoration.underline,
-                      ),
-                    ),
+                      ],
+                    ],
                   ),
-                ],
-              ),
-            ],
-            if (isAprobado) ...[
-              const SizedBox(height: 14),
-              const Divider(height: 1),
-              const SizedBox(height: 14),
+                );
+              }),
+            ] else ...[
+              const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () =>
-                          _mostrarDialogoConfirmacion(j, false),
-                      icon: const Icon(Icons.cancel_outlined,
-                          size: 18),
-                      label: const Text('No aceptar'),
+                    child: OutlinedButton(
+                      onPressed: () => _aplicarGeneral(j, false),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFFF44336),
-                        side: const BorderSide(
-                            color: Color(0xFFF44336)),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                        padding:
-                            const EdgeInsets.symmetric(vertical: 10),
+                        foregroundColor: AppColors.dangerRed,
+                        side: const BorderSide(color: AppColors.dangerRed),
                       ),
+                      child: const Text('No aplicar'),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () =>
-                          _mostrarDialogoConfirmacion(j, true),
-                      icon: const Icon(Icons.check_circle,
-                          size: 18),
-                      label: const Text(
-                        'Justificar',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold),
-                      ),
+                    child: ElevatedButton(
+                      onPressed: () => _aplicarGeneral(j, true),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF4CAF50),
+                        backgroundColor: AppColors.success,
                         foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                        padding:
-                            const EdgeInsets.symmetric(vertical: 10),
                       ),
+                      child: const Text('Aplicar en clase'),
                     ),
                   ),
                 ],
-              ),
-            ] else ...[
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.grey.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.info_outline,
-                        size: 14, color: Colors.grey[500]),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Ya procesado',
-                      style: TextStyle(
-                          fontSize: 12, color: Colors.grey[500]),
-                    ),
-                  ],
-                ),
               ),
             ],
           ],

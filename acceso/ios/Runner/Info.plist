@@ -5,7 +5,7 @@
 		<key>CFBundleDevelopmentRegion</key>
 		<string>$(DEVELOPMENT_LANGUAGE)</string>
 		<key>CFBundleDisplayName</key>
-		<string>Acceso</string>
+		<string>Control+</string>
 		<key>CFBundleExecutable</key>
 		<string>$(EXECUTABLE_NAME)</string>
 		<key>CFBundleIdentifier</key>
@@ -24,6 +24,17 @@
 		<string>$(FLUTTER_BUILD_NUMBER)</string>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
+		<key>NSCameraUsageDescription</key>
+		<string>Control+ necesita acceso a la cámara para fotografiar evidencias médicas de justificantes y actualizar tu foto de perfil.</string>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>Control+ necesita acceso a tus fotos y archivos para adjuntar evidencias de justificantes, noticias o foto de perfil.</string>
+		<key>NSPhotoLibraryAddUsageDescription</key>
+		<string>Control+ necesita permiso para guardar o compartir reportes y pases QR generados en la aplicación.</string>
+		<key>NSAppTransportSecurity</key>
+		<dict>
+			<key>NSAllowsArbitraryLoads</key>
+			<true/>
+		</dict>
 		<key>UILaunchStoryboardName</key>
 		<string>LaunchScreen</string>
 		<key>UIMainStoryboardFile</key>

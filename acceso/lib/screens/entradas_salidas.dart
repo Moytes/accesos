@@ -1,9 +1,18 @@
+import 'dart:io';
+import 'package:excel/excel.dart' as xl;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../service/api_service.dart';
+import '../service/connectivity_service.dart';
+import '../service/session_wrapper.dart';
+import '../theme/app_colors.dart';
 
 class EntradasSalidasScreen extends StatefulWidget {
-  const EntradasSalidasScreen({Key? key}) : super(key: key);
+  final String? userIdFilter;
+
+  const EntradasSalidasScreen({super.key, this.userIdFilter});
 
   @override
   State<EntradasSalidasScreen> createState() => _EntradasSalidasScreenState();
@@ -11,617 +20,403 @@ class EntradasSalidasScreen extends StatefulWidget {
 
 class _EntradasSalidasScreenState extends State<EntradasSalidasScreen> {
   final ApiService _apiService = ApiService();
-  List<Map<String, dynamic>> accessList = [];
-  List<Map<String, dynamic>> filteredAccessList = [];
-  bool isLoading = true;
-  String? errorMessage;
-  String selectedFilter = 'todos';
+  final TextEditingController _searchCtrl = TextEditingController();
+
+  List<Map<String, dynamic>> _registros = [];
+  List<Map<String, dynamic>> _zonas = [];
+  bool _isLoading = true;
+  bool _isExporting = false;
+  String _tipoFiltro = 'todos';
+  String? _zonaFiltroId;
+  String _search = '';
 
   @override
   void initState() {
     super.initState();
-    _loadAccessData();
+    _cargar();
   }
 
-  Future<void> _loadAccessData() async {
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _cargar() async {
+    setState(() => _isLoading = true);
+    final accessFuture = _apiService.getAccess(
+      userId: widget.userIdFilter,
+      zoneId: _zonaFiltroId,
+      tipo: _tipoFiltro == 'todos' ? null : _tipoFiltro,
+      limit: 250,
+    );
+    final zonasFuture = widget.userIdFilter == null
+        ? _apiService.getZonas()
+        : Future.value(<Map<String, dynamic>>[]);
+
+    final registros = await accessFuture;
+    final zonas = await zonasFuture;
+    if (!mounted) return;
     setState(() {
-      isLoading = true;
-      errorMessage = null;
-    });
-
-    try {
-      final loadedAccess = await _apiService.getAllAccess();
-      
-      print("Registros cargados: ${loadedAccess.length}");
-      
-      setState(() {
-        accessList = loadedAccess;
-        _applyFilter();
-        isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        errorMessage = "Error de conexión: $e";
-        isLoading = false;
-      });
-      print("Excepción en _loadAccessData: $e");
-    }
-  }
-
-  void _applyFilter() {
-    if (selectedFilter == 'todos') {
-      filteredAccessList = accessList;
-    } else {
-      filteredAccessList = accessList
-          .where((access) => access['tipo']?.toString().toLowerCase() == selectedFilter)
-          .toList();
-    }
-  }
-
-  void _changeFilter(String filter) {
-    setState(() {
-      selectedFilter = filter;
-      _applyFilter();
+      _registros = registros;
+      _zonas = zonas;
+      _isLoading = false;
     });
   }
 
-  String _formatDate(String? dateString) {
-    if (dateString == null) return 'N/A';
+  List<Map<String, dynamic>> get _filtrados {
+    final q = _search.trim().toLowerCase();
+    return _registros.where((r) {
+      final tipo = (r['tipo'] ?? '').toString().toLowerCase();
+      if (_tipoFiltro != 'todos' && tipo != _tipoFiltro) return false;
+      if (q.isEmpty) return true;
+      final nom = (r['nombre'] ?? r['usuario_nombre'] ?? '')
+          .toString()
+          .toLowerCase();
+      final mat = (r['matricula'] ?? '').toString().toLowerCase();
+      final zona = (r['zona_nombre'] ?? r['zona'] ?? '').toString().toLowerCase();
+      return nom.contains(q) || mat.contains(q) || zona.contains(q);
+    }).toList();
+  }
+
+  Future<void> _exportarExcel() async {
+    setState(() => _isExporting = true);
     try {
-      final date = DateTime.parse(dateString);
-      return DateFormat('dd/MM/yyyy HH:mm').format(date);
+      List<Map<String, dynamic>> source = _filtrados;
+      if (widget.userIdFilter == null && ConnectivityService().isOnline.value) {
+        final serverReport = await _apiService.exportarReporteAccesos(
+          tipo: _tipoFiltro == 'todos' ? null : _tipoFiltro,
+        );
+        if (serverReport.isNotEmpty) source = serverReport;
+      }
+
+      if (source.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No hay accesos para exportar.')),
+        );
+        return;
+      }
+
+      final excel = xl.Excel.createExcel();
+      const name = 'Accesos';
+      excel.rename('Sheet1', name);
+      final sheet = excel[name];
+
+      final headers = [
+        'Fecha/Hora',
+        'Usuario',
+        'Matrícula / ID',
+        'Tipo',
+        'Zona',
+        'Motivo Denegación',
+      ];
+      for (int c = 0; c < headers.length; c++) {
+        sheet
+            .cell(xl.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: 0))
+            .value = headers[c];
+      }
+
+      for (int r = 0; r < source.length; r++) {
+        final item = source[r];
+        final row = r + 1;
+        sheet.cell(xl.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: row)).value =
+            _formatDate(item['fecha'] ?? item['created_at'] ?? item['timestamp']);
+        sheet.cell(xl.CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: row)).value =
+            (item['nombre'] ?? item['usuario_nombre'] ?? '').toString();
+        sheet.cell(xl.CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: row)).value =
+            (item['matricula'] ?? item['numero_empleado'] ?? '').toString();
+        sheet.cell(xl.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: row)).value =
+            (item['tipo'] ?? '').toString();
+        sheet.cell(xl.CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: row)).value =
+            (item['zona_nombre'] ?? item['zona'] ?? '').toString();
+        sheet.cell(xl.CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: row)).value =
+            (item['motivo_denegacion'] ?? item['motivoDenegacion'] ?? '')
+                .toString();
+      }
+
+      final bytes = excel.encode();
+      if (bytes == null) throw Exception('Error codificando Excel.');
+      final dir = await getTemporaryDirectory();
+      final path =
+          '${dir.path}/reporte_accesos_${DateTime.now().millisecondsSinceEpoch}.xlsx';
+      await File(path).writeAsBytes(bytes, flush: true);
+      if (!mounted) return;
+      await Share.shareXFiles([XFile(path)], text: 'Reporte de Accesos CONTROL+');
     } catch (e) {
-      return dateString;
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al exportar: $e'),
+          backgroundColor: AppColors.dangerRed,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  String _formatDate(dynamic raw) {
+    if (raw == null) return '';
+    final dt = DateTime.tryParse(raw.toString())?.toLocal();
+    if (dt == null) return raw.toString();
+    return DateFormat('dd/MM/yyyy HH:mm').format(dt);
+  }
+
+  Color _tipoColor(String tipo) {
+    switch (tipo.toLowerCase()) {
+      case 'entrada':
+        return AppColors.success;
+      case 'salida':
+        return AppColors.accentBlue;
+      case 'denegado':
+        return AppColors.dangerRed;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _tipoIcon(String tipo) {
+    switch (tipo.toLowerCase()) {
+      case 'entrada':
+        return Icons.login;
+      case 'salida':
+        return Icons.logout;
+      case 'denegado':
+        return Icons.block;
+      default:
+        return Icons.sync_alt;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF003366),
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Row(
-          children: [
-            const Text(
-              'CONTROL',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
+    final items = _filtrados;
+    final esPersonal = widget.userIdFilter != null;
+
+    return SessionWrapper(
+      child: Scaffold(
+        backgroundColor: AppColors.surfaceLight,
+        appBar: AppBar(
+          backgroundColor: AppColors.primaryDark,
+          foregroundColor: Colors.white,
+          title: Text(esPersonal ? 'Mis Accesos' : 'Entradas y Salidas'),
+          actions: [
+            IconButton(
+              tooltip: 'Exportar Excel',
+              icon: _isExporting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.download),
+              onPressed: _isExporting ? null : _exportarExcel,
             ),
-            const Text(
-              '+',
-              style: TextStyle(
-                color: Color(0xFFFFA500),
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+            IconButton(icon: const Icon(Icons.refresh), onPressed: _cargar),
           ],
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.white),
-            onPressed: _loadAccessData,
-            tooltip: 'Actualizar',
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // Header con estadísticas
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(20),
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Color(0xFF003366),
-                  Color(0xFF004080),
+        body: Column(
+          children: [
+            Container(
+              color: Colors.white,
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: _searchCtrl,
+                    decoration: InputDecoration(
+                      hintText: esPersonal
+                          ? 'Filtrar por zona...'
+                          : 'Buscar usuario, matrícula o zona...',
+                      prefixIcon: const Icon(Icons.search),
+                      isDense: true,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onChanged: (v) => setState(() => _search = v),
+                  ),
+                  if (!esPersonal && _zonas.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String?>(
+                      value: _zonaFiltroId,
+                      decoration: const InputDecoration(
+                        labelText: 'Filtrar por zona',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        const DropdownMenuItem<String?>(
+                          value: null,
+                          child: Text('Todas las zonas'),
+                        ),
+                        ..._zonas.map(
+                          (z) => DropdownMenuItem<String?>(
+                            value: z['id']?.toString(),
+                            child: Text(
+                              (z['nombre'] ?? z['codigo'] ?? 'Zona').toString(),
+                            ),
+                          ),
+                        ),
+                      ],
+                      onChanged: (val) {
+                        setState(() => _zonaFiltroId = val);
+                        _cargar();
+                      },
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _tipoChip('todos', 'Todos'),
+                        const SizedBox(width: 6),
+                        _tipoChip('entrada', 'Entradas'),
+                        const SizedBox(width: 6),
+                        _tipoChip('salida', 'Salidas'),
+                        const SizedBox(width: 6),
+                        _tipoChip('denegado', 'Denegados'),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(
-                  Icons.access_time,
-                  size: 50,
-                  color: Color(0xFFFFA500),
-                ),
-                const SizedBox(height: 10),
-                const Text(
-                  'ENTRADAS Y SALIDAS',
-                  style: TextStyle(
-                    color: Color(0xFFFFA500),
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  '${filteredAccessList.length} registros',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.9),
-                    fontSize: 16,
-                  ),
-                ),
-                const SizedBox(height: 15),
-                _buildFilterChips(),
-              ],
-            ),
-          ),
-          Expanded(
-            child: isLoading
-                ? const Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFF003366),
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : RefreshIndicator(
+                      onRefresh: _cargar,
+                      child: items.isEmpty
+                          ? ListView(
+                              padding: const EdgeInsets.all(32),
+                              children: [
+                                Icon(
+                                  Icons.door_sliding_outlined,
+                                  size: 60,
+                                  color: Colors.grey[400],
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Sin registros de acceso para este filtro.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: Colors.grey[600]),
+                                ),
+                              ],
+                            )
+                          : ListView.builder(
+                              padding: const EdgeInsets.all(14),
+                              itemCount: items.length,
+                              itemBuilder: (ctx, i) {
+                                final r = items[i];
+                                final tipo = (r['tipo'] ?? '').toString();
+                                final color = _tipoColor(tipo);
+                                final motivo = (r['motivo_denegacion'] ??
+                                        r['motivoDenegacion'] ??
+                                        '')
+                                    .toString();
+                                final zona =
+                                    (r['zona_nombre'] ?? r['zona'] ?? 'Campus')
+                                        .toString();
+                                final fecha = _formatDate(
+                                  r['fecha'] ??
+                                      r['created_at'] ??
+                                      r['timestamp'],
+                                );
+
+                                return Card(
+                                  margin: const EdgeInsets.only(bottom: 10),
+                                  color: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: ListTile(
+                                    leading: CircleAvatar(
+                                      backgroundColor: color.withOpacity(0.15),
+                                      child: Icon(_tipoIcon(tipo), color: color),
+                                    ),
+                                    title: Text(
+                                      (r['nombre'] ??
+                                              r['usuario_nombre'] ??
+                                              'Usuario')
+                                          .toString(),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.primaryDark,
+                                      ),
+                                    ),
+                                    subtitle: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          '$zona · $fecha',
+                                          style: TextStyle(
+                                            fontSize: 12.5,
+                                            color: Colors.grey[700],
+                                          ),
+                                        ),
+                                        if (motivo.isNotEmpty)
+                                          Text(
+                                            'Motivo: $motivo',
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              color: AppColors.dangerRed,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                    trailing: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: color.withOpacity(0.14),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        tipo.toUpperCase(),
+                                        style: TextStyle(
+                                          color: color,
+                                          fontSize: 10.5,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
                     ),
-                  )
-                : errorMessage != null
-                    ? _buildErrorState()
-                    : filteredAccessList.isEmpty
-                        ? _buildEmptyState()
-                        : _buildAccessList(),
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildFilterChips() {
-    return Row(
-      children: [
-        _buildFilterChip('Todos', 'todos'),
-        const SizedBox(width: 8),
-        _buildFilterChip('Entradas', 'entrada'),
-        const SizedBox(width: 8),
-        _buildFilterChip('Salidas', 'salida'),
-      ],
-    );
-  }
-
-  Widget _buildFilterChip(String label, String value) {
-    final isSelected = selectedFilter == value;
-    return FilterChip(
+  Widget _tipoChip(String value, String label) {
+    final selected = _tipoFiltro == value;
+    return ChoiceChip(
       label: Text(label),
-      selected: isSelected,
-      onSelected: (selected) => _changeFilter(value),
-      backgroundColor: const Color.fromARGB(255, 41, 13, 183).withOpacity(0.5 ),
-      selectedColor: const Color(0xFFFFA500),
+      selected: selected,
+      selectedColor: AppColors.primaryDark,
       labelStyle: TextStyle(
-        color: isSelected ? Colors.white : Colors.white.withOpacity(0.8),
-        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+        color: selected ? Colors.white : AppColors.primaryDark,
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
       ),
-      checkmarkColor: Colors.white,
-    );
-  }
-
-  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 5,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: color, size: 32),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[600],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildErrorState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.error_outline,
-              size: 80,
-              color: Colors.red,
-            ),
-            const SizedBox(height: 20),
-            Text(
-              errorMessage ?? 'Error desconocido',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 16,
-                color: Colors.red,
-              ),
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _loadAccessData,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF003366),
-                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
-              ),
-              child: const Text(
-                'Reintentar',
-                style: TextStyle(color: Colors.white),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.receipt_long_outlined,
-            size: 80,
-            color: Colors.grey[400],
-          ),
-          const SizedBox(height: 20),
-          Text(
-            selectedFilter == 'todos'
-                ? 'No hay registros de acceso'
-                : 'No hay ${selectedFilter}s registradas',
-            style: TextStyle(
-              fontSize: 18,
-              color: Colors.grey[600],
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAccessList() {
-    return RefreshIndicator(
-      onRefresh: _loadAccessData,
-      color: const Color(0xFF003366),
-      child: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: filteredAccessList.length,
-        itemBuilder: (context, index) {
-          final access = filteredAccessList[index];
-          return _buildAccessCard(access);
-        },
-      ),
-    );
-  }
-
-  Widget _buildAccessCard(Map<String, dynamic> access) {
-    final tipo = access['tipo']?.toString().toLowerCase() ?? 'desconocido';
-    final isEntrada = tipo == 'entrada';
-    
-    final color = isEntrada ? Colors.green : Colors.orange;
-    final icon = isEntrada ? Icons.login : Icons.logout;
-    final tipoText = isEntrada ? 'ENTRADA' : 'SALIDA';
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: color.withOpacity(0.3),
-          width: 2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 5,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: () => _showAccessDetails(access),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                // Icono de tipo
-                Container(
-                  width: 60,
-                  height: 60,
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    icon,
-                    color: color,
-                    size: 30,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                
-                // Información principal
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Nombre del usuario
-                      Text(
-                        access['user_nombre'] ?? 'Usuario desconocido',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF003366),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      
-                      // Zona
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.location_on,
-                            size: 14,
-                            color: Colors.grey[600],
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              access['zone_name'] ?? 'Zona desconocida',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey[600],
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      
-                      // Matrícula
-                      if (access['user_matricula'] != 'N/A')
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.badge,
-                              size: 14,
-                              color: Colors.grey[500],
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              access['user_matricula'],
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[500],
-                              ),
-                            ),
-                          ],
-                        ),
-                      const SizedBox(height: 8),
-                      
-                      // Fecha y hora
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.access_time,
-                            size: 14,
-                            color: Colors.grey[700],
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            _formatDate(access['fecha']),
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey[700],
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                
-                // Badge de tipo
-                Column(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: color,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        tipoText,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showAccessDetails(Map<String, dynamic> access) {
-    final tipo = access['tipo']?.toString().toLowerCase() ?? 'desconocido';
-    final isEntrada = tipo == 'entrada';
-    final color = isEntrada ? Colors.green : Colors.orange;
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    isEntrada ? Icons.login : Icons.logout,
-                    color: color,
-                    size: 32,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Detalles del Acceso',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: color,
-                        ),
-                      ),
-                      Text(
-                        isEntrada ? 'Entrada' : 'Salida',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            _buildDetailRow('Usuario', access['user_nombre'] ?? 'N/A'),
-            _buildDetailRow('Correo', access['user_correo'] ?? 'N/A'),
-            _buildDetailRow('Matrícula', access['user_matricula'] ?? 'N/A'),
-            _buildDetailRow('Zona', access['zone_name'] ?? 'N/A'),
-            _buildDetailRow('Fecha y hora', _formatDate(access['fecha'])),
-            _buildDetailRow('Tipo', access['tipo'] ?? 'N/A'),
-            if (access['qr_id'] != null)
-              _buildDetailRow('QR ID', access['qr_id']),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF003366),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-                child: const Text(
-                  'Cerrar',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 110,
-            child: Text(
-              '$label:',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey[700],
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                fontSize: 14,
-                color: Color(0xFF003366),
-              ),
-            ),
-          ),
-        ],
-      ),
+      onSelected: (_) {
+        setState(() => _tipoFiltro = value);
+        _cargar();
+      },
     );
   }
 }
