@@ -402,12 +402,22 @@ class _MarketingDashboardScreenState extends State<MarketingDashboardScreen> {
                   const SizedBox(height: 10),
                   DropdownButtonFormField<String>(
                     value: categoria,
+                    isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: 'Categoría',
                       border: OutlineInputBorder(),
                     ),
                     items: cats
-                        .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                        .map(
+                          (c) => DropdownMenuItem(
+                            value: c,
+                            child: Text(
+                              c,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
                         .toList(),
                     onChanged: (v) {
                       if (v != null) setModalState(() => categoria = v);

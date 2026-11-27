@@ -475,6 +475,7 @@ class _PsicologoDashboardScreenState extends State<PsicologoDashboardScreen>
             children: [
               DropdownButtonFormField<int>(
                 value: dia,
+                isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Día de la semana',
                   border: OutlineInputBorder(),
@@ -483,7 +484,11 @@ class _PsicologoDashboardScreenState extends State<PsicologoDashboardScreen>
                     .map(
                       (d) => DropdownMenuItem(
                         value: d,
-                        child: Text(_diaNombreCompleto(d)),
+                        child: Text(
+                          _diaNombreCompleto(d),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     )
                     .toList(),
@@ -971,6 +976,7 @@ class _NotaClinicaScreenState extends State<NotaClinicaScreen> {
                 const SizedBox(height: 14),
                 DropdownButtonFormField<String>(
                   value: _nivelRiesgo,
+                  isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Nivel de riesgo',
                     border: OutlineInputBorder(),

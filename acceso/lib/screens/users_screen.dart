@@ -3,6 +3,7 @@ import '../service/api_service.dart';
 import '../service/connectivity_service.dart';
 import '../service/session_wrapper.dart';
 import '../theme/app_colors.dart';
+import '../widgets/admin_ui_components.dart';
 import 'qralumnos.dart';
 
 class UsersScreen extends StatefulWidget {
@@ -136,10 +137,12 @@ class _UsersScreenState extends State<UsersScreen> {
     bool activo = (existing?['activo'] ?? 1) != 0;
 
     bool saving = false;
+    bool obscurePassword = true;
 
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
@@ -149,28 +152,43 @@ class _UsersScreenState extends State<UsersScreen> {
           final isStudent = selectedRoles.contains('alumno');
           final isStaff = selectedRoles.any((r) => r != 'alumno');
 
-          return Padding(
-            padding: EdgeInsets.only(
-              left: 20,
-              right: 20,
-              top: 16,
-              bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+          return ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(ctx).size.height * 0.88,
             ),
-            child: SingleChildScrollView(
-              child: Form(
-                key: formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      isEdit ? 'Editar Usuario' : 'Nuevo Usuario',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.primaryDark,
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 12,
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+              ),
+              child: SingleChildScrollView(
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 42,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[300],
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
                       ),
-                    ),
+                      Text(
+                        isEdit ? 'Editar Usuario' : 'Nuevo Usuario',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.primaryDark,
+                        ),
+                      ),
                     const SizedBox(height: 14),
                     TextFormField(
                       controller: nombreCtrl,
@@ -202,12 +220,26 @@ class _UsersScreenState extends State<UsersScreen> {
                     const SizedBox(height: 10),
                     TextFormField(
                       controller: passCtrl,
-                      obscureText: true,
+                      obscureText: obscurePassword,
                       decoration: InputDecoration(
                         labelText: isEdit
                             ? 'Nueva contraseña (opcional)'
                             : 'Contraseña inicial',
                         border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          tooltip: obscurePassword
+                              ? 'Mostrar contraseña'
+                              : 'Ocultar contraseña',
+                          icon: Icon(
+                            obscurePassword
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                            color: AppColors.primaryDark,
+                          ),
+                          onPressed: () => setModalState(
+                            () => obscurePassword = !obscurePassword,
+                          ),
+                        ),
                       ),
                       validator: (v) {
                         if (!isEdit && (v == null || v.length < 6)) {
@@ -219,6 +251,7 @@ class _UsersScreenState extends State<UsersScreen> {
                     const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
                       value: primaryRole,
+                      isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'Rol principal',
                         border: OutlineInputBorder(),
@@ -227,7 +260,11 @@ class _UsersScreenState extends State<UsersScreen> {
                           .map(
                             (r) => DropdownMenuItem(
                               value: r,
-                              child: Text(formatRoleLabel(r)),
+                              child: Text(
+                                formatRoleLabel(r),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           )
                           .toList(),
@@ -289,6 +326,7 @@ class _UsersScreenState extends State<UsersScreen> {
                       const SizedBox(height: 10),
                       if (_grupos.isNotEmpty)
                         DropdownButtonFormField<String>(
+                          isExpanded: true,
                           value: _grupos.any(
                             (g) => g['id']?.toString() == selectedGrupoId,
                           )
@@ -304,6 +342,7 @@ class _UsersScreenState extends State<UsersScreen> {
                                   value: g['id']?.toString() ?? '',
                                   child: Text(
                                     '${g['codigo'] ?? ''} ${g['carrera'] ?? ''}',
+                                    maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
@@ -348,6 +387,7 @@ class _UsersScreenState extends State<UsersScreen> {
                         Expanded(
                           child: DropdownButtonFormField<String>(
                             value: estatus,
+                            isExpanded: true,
                             decoration: const InputDecoration(
                               labelText: 'Estatus',
                               border: OutlineInputBorder(),
@@ -356,7 +396,11 @@ class _UsersScreenState extends State<UsersScreen> {
                                 .map(
                                   (s) => DropdownMenuItem(
                                     value: s,
-                                    child: Text(s.toUpperCase()),
+                                    child: Text(
+                                      s.toUpperCase(),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
                                 )
                                 .toList(),
@@ -487,6 +531,7 @@ class _UsersScreenState extends State<UsersScreen> {
                 ),
               ),
             ),
+            ),
           );
         },
       ),
@@ -608,113 +653,119 @@ class _UsersScreenState extends State<UsersScreen> {
               ),
             ),
             Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : RefreshIndicator(
-                      onRefresh: _cargar,
-                      child: ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(14, 10, 14, 90),
-                        itemCount: items.length,
-                        itemBuilder: (ctx, i) {
-                          final u = items[i];
-                          final roles = _extractUserRoles(u);
-                          final mat = u['matricula']?.toString();
-                          final emp = (u['numero_empleado'] ??
-                                  u['numeroEmpleado'])
-                              ?.toString();
-                          final est =
-                              (u['estatus'] ?? 'activo').toString().toLowerCase();
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            color: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: ListTile(
-                              onTap: () => _openUserModal(u),
-                              leading: CircleAvatar(
-                                backgroundColor: est == 'activo'
-                                    ? AppColors.primaryDark
-                                    : Colors.grey,
-                                child: Text(
-                                  (u['nombre']?.toString() ?? 'U')
-                                          .isNotEmpty
-                                      ? u['nombre']
-                                          .toString()[0]
-                                          .toUpperCase()
-                                      : 'U',
-                                  style: const TextStyle(color: Colors.white),
-                                ),
+              child: ResponsiveContainer(
+                padding: EdgeInsets.zero,
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : RefreshIndicator(
+                        onRefresh: _cargar,
+                        child: ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(14, 10, 14, 90),
+                          itemCount: items.length,
+                          itemBuilder: (ctx, i) {
+                            final u = items[i];
+                            final roles = _extractUserRoles(u);
+                            final mat = u['matricula']?.toString();
+                            final emp = (u['numero_empleado'] ??
+                                    u['numeroEmpleado'])
+                                ?.toString();
+                            final est = (u['estatus'] ?? 'activo')
+                                .toString()
+                                .toLowerCase();
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 10),
+                              color: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
                               ),
-                              title: Text(
-                                (u['nombre'] ?? '').toString(),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.primaryDark,
-                                ),
-                              ),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    (u['correo'] ?? '').toString(),
-                                    style: TextStyle(
-                                      fontSize: 12.5,
-                                      color: Colors.grey[700],
-                                    ),
+                              child: ListTile(
+                                onTap: () => _openUserModal(u),
+                                leading: CircleAvatar(
+                                  backgroundColor: est == 'activo'
+                                      ? AppColors.primaryDark
+                                      : Colors.grey,
+                                  child: Text(
+                                    (u['nombre']?.toString() ?? 'U')
+                                            .isNotEmpty
+                                        ? u['nombre']
+                                            .toString()[0]
+                                            .toUpperCase()
+                                        : 'U',
+                                    style: const TextStyle(color: Colors.white),
                                   ),
-                                  if (mat != null && mat.isNotEmpty)
+                                ),
+                                title: Text(
+                                  (u['nombre'] ?? '').toString(),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.primaryDark,
+                                  ),
+                                ),
+                                subtitle: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
                                     Text(
-                                      'Matrícula: $mat · Grupo ${u['grupo'] ?? ''}',
-                                      style: const TextStyle(fontSize: 12),
+                                      (u['correo'] ?? '').toString(),
+                                      style: TextStyle(
+                                        fontSize: 12.5,
+                                        color: Colors.grey[700],
+                                      ),
                                     ),
-                                  if (emp != null && emp.isNotEmpty)
-                                    Text(
-                                      'No. Empleado: $emp',
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
-                                  const SizedBox(height: 4),
-                                  Wrap(
-                                    spacing: 4,
-                                    runSpacing: 4,
-                                    children: roles
-                                        .map(
-                                          (r) => Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 7,
-                                              vertical: 2,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: AppColors.surfaceSoftBlue,
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                            ),
-                                            child: Text(
-                                              formatRoleLabel(r),
-                                              style: const TextStyle(
-                                                fontSize: 10.5,
-                                                fontWeight: FontWeight.bold,
-                                                color: AppColors.primaryDark,
+                                    if (mat != null && mat.isNotEmpty)
+                                      Text(
+                                        'Matrícula: $mat · Grupo ${u['grupo'] ?? ''}',
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                    if (emp != null && emp.isNotEmpty)
+                                      Text(
+                                        'No. Empleado: $emp',
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                    const SizedBox(height: 4),
+                                    Wrap(
+                                      spacing: 4,
+                                      runSpacing: 4,
+                                      children: roles
+                                          .map(
+                                            (r) => Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 7,
+                                                vertical: 2,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color:
+                                                    AppColors.surfaceSoftBlue,
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                              ),
+                                              child: Text(
+                                                formatRoleLabel(r),
+                                                style: const TextStyle(
+                                                  fontSize: 10.5,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: AppColors.primaryDark,
+                                                ),
                                               ),
                                             ),
-                                          ),
-                                        )
-                                        .toList(),
-                                  ),
-                                ],
-                              ),
-                              trailing: IconButton(
-                                icon: const Icon(
-                                  Icons.delete_outline,
-                                  color: AppColors.dangerRed,
+                                          )
+                                          .toList(),
+                                    ),
+                                  ],
                                 ),
-                                onPressed: () => _eliminar(u),
+                                trailing: IconButton(
+                                  icon: const Icon(
+                                    Icons.delete_outline,
+                                    color: AppColors.dangerRed,
+                                  ),
+                                  onPressed: () => _eliminar(u),
+                                ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
-                    ),
+              ),
             ),
           ],
         ),

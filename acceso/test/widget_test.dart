@@ -5,18 +5,23 @@ import 'package:acceso/navigation/role_router.dart';
 import 'package:acceso/screens/admin_panel_screen.dart';
 import 'package:acceso/screens/admin_screen.dart';
 import 'package:acceso/screens/alumnos.dart';
+import 'package:acceso/screens/avisos_profesor_screen.dart';
+import 'package:acceso/screens/crear_anuncio_screen.dart';
 import 'package:acceso/screens/homeprofesor.dart';
 import 'package:acceso/screens/noticias_screen.dart';
+import 'package:acceso/screens/notificaciones_screen.dart';
 import 'package:acceso/screens/psicologia_screens.dart';
 import 'package:acceso/screens/seguridad_screen.dart';
 import 'package:acceso/service/api_client.dart';
 import 'package:acceso/service/offline_cache_service.dart';
 import 'package:acceso/service/offline_sync_queue_service.dart';
 import 'package:acceso/service/screen_security_service.dart';
+import 'package:acceso/service/session_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -293,5 +298,294 @@ void main() {
       RoleRouter.buildHomeForRole(rol: 'marketing', userId: 'u8'),
       isA<MarketingDashboardScreen>(),
     );
+  });
+
+  group('Responsividad Admin y Administrativo sin overflows', () {
+    late Directory tempDir;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('cp_admin_ui_test_');
+      OfflineCacheService().configureForTest(rootDir: tempDir);
+      OfflineSyncQueueService().configureForTest(rootDir: tempDir);
+      ApiClient().configureForTest(
+        httpClient: MockClient((request) async {
+          if (request.url.path.contains('pendientes-count')) {
+            return http.Response('{"count": 3}', 200);
+          }
+          return http.Response('[]', 200);
+        }),
+      );
+    });
+
+    tearDown(() async {
+      ApiClient().configureForTest(httpClient: null);
+      SessionService().dispose();
+      OfflineCacheService().configureForTest(rootDir: null);
+      OfflineSyncQueueService().configureForTest(rootDir: null);
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+
+    for (final size in const [
+      Size(320, 640),
+      Size(360, 780),
+      Size(800, 1200),
+    ]) {
+      testWidgets(
+        'AdminScreen renderiza correctamente en ${size.width.toInt()}x${size.height.toInt()}',
+        (tester) async {
+          tester.view.physicalSize = size;
+          tester.view.devicePixelRatio = 1.0;
+          addTearDown(tester.view.reset);
+
+          await tester.pumpWidget(
+            const MaterialApp(
+              home: AdminScreen(
+                userId: 'admin-1',
+                nombre: 'Administrador General',
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(find.text('CONTROL'), findsOneWidget);
+          expect(find.text('+'), findsOneWidget);
+          expect(find.text('ADMINISTRADOR'), findsOneWidget);
+          expect(find.text('Resumen Operativo'), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        },
+      );
+
+      testWidgets(
+        'AdminPanelScreen renderiza correctamente en ${size.width.toInt()}x${size.height.toInt()}',
+        (tester) async {
+          tester.view.physicalSize = size;
+          tester.view.devicePixelRatio = 1.0;
+          addTearDown(tester.view.reset);
+
+          await tester.pumpWidget(
+            const MaterialApp(
+              home: AdminPanelScreen(
+                userId: 'advo-1',
+                nombre: 'María López',
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(find.text('CONTROL+'), findsOneWidget);
+          expect(find.text('ADMINISTRATIVO'), findsOneWidget);
+          expect(find.text('Estado Operativo'), findsOneWidget);
+          expect(find.text('Código QR'), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  });
+
+  group('Responsividad y flujo de Avisos (Profesor y Alumno)', () {
+    final sampleAnuncios = [
+      {
+        'id': 'an-1',
+        'profesor_id': 'prof-1',
+        'materia_id': 'mat-1',
+        'clase_id': 'cls-1',
+        'grupo': 'TI-401',
+        'materia_nombre': 'Programación Móvil',
+        'profesor_nombre': 'Ana Estrada',
+        'titulo': 'Examen parcial unidad 2 el próximo viernes',
+        'mensaje':
+            'Repasen arquitectura Flutter, manejo de estado y consumo REST.',
+        'tipo': 'examen',
+        'total_leidos': 14,
+        'leido': false,
+        'fecha_creacion': '2026-11-26T10:00:00Z',
+        'updated_at': '2026-11-26T10:00:00Z',
+      },
+      {
+        'id': 'an-2',
+        'profesor_id': 'prof-1',
+        'materia_id': 'mat-1',
+        'clase_id': 'cls-1',
+        'grupo': 'TI-401',
+        'materia_nombre': 'Programación Móvil',
+        'profesor_nombre': 'Ana Estrada',
+        'titulo': 'Entrega de práctica con captura',
+        'mensaje': 'Subir repositorio antes de las 23:59.',
+        'tipo': 'tarea',
+        'total_leidos': 8,
+        'leido': true,
+        'fecha_creacion': '2026-11-25T10:00:00Z',
+        'updated_at': '2026-11-25T12:30:00Z',
+      },
+    ];
+
+    setUp(() {
+      OfflineCacheService().configureForTest(memoryOnly: true);
+      OfflineSyncQueueService().configureForTest(rootDir: null);
+      ApiClient().configureForTest(
+        token: 'test-jwt',
+        httpClient: MockClient((request) async {
+          if (request.url.path.contains('/anuncios/profesor/') ||
+              request.url.path.contains('/anuncios/alumno/')) {
+            return http.Response(jsonEncode(sampleAnuncios), 200);
+          }
+          if (request.url.path.contains('/grupos')) {
+            return http.Response(
+              jsonEncode([
+                {'clase_id': 'cls-1', 'grupo': 'TI-401'},
+              ]),
+              200,
+            );
+          }
+          if (request.method == 'DELETE') {
+            return http.Response(jsonEncode({'success': true}), 200);
+          }
+          return http.Response('[]', 200);
+        }),
+      );
+    });
+
+    tearDown(() {
+      ApiClient().configureForTest(httpClient: null);
+      SessionService().dispose();
+      OfflineCacheService().configureForTest(rootDir: null, memoryOnly: false);
+      OfflineSyncQueueService().configureForTest(rootDir: null);
+    });
+
+    for (final size in const [
+      Size(320, 640),
+      Size(360, 780),
+      Size(800, 1200),
+    ]) {
+      testWidgets(
+        'AvisosProfesorScreen contextual renderiza sin overflows en ${size.width.toInt()}x${size.height.toInt()}',
+        (tester) async {
+          tester.view.physicalSize = size;
+          tester.view.devicePixelRatio = 1.0;
+          addTearDown(tester.view.reset);
+
+          await tester.pumpWidget(
+            const MaterialApp(
+              home: AvisosProfesorScreen(
+                profesorId: 'prof-1',
+                nombreProfesor: 'Ana Estrada',
+                materiaId: 'mat-1',
+                claseId: 'cls-1',
+                materiaNombre: 'Programación Móvil',
+                grupo: 'TI-401',
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(find.text('Avisos del grupo'), findsOneWidget);
+          expect(find.text('Examen parcial unidad 2 el próximo viernes'),
+              findsOneWidget);
+          expect(find.text('Editar'), findsAtLeastNWidgets(1));
+          expect(find.text('Eliminar'), findsAtLeastNWidgets(1));
+
+          await tester.drag(find.byType(ListView), const Offset(0, -300));
+          await tester.pumpAndSettle();
+
+          expect(find.text('Editado'), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        },
+      );
+
+      testWidgets(
+        'NotificacionesScreen alumno renderiza sin overflows en ${size.width.toInt()}x${size.height.toInt()}',
+        (tester) async {
+          tester.view.physicalSize = size;
+          tester.view.devicePixelRatio = 1.0;
+          addTearDown(tester.view.reset);
+
+          await tester.pumpWidget(
+            const MaterialApp(
+              home: NotificacionesScreen(userId: 'alum-1'),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(find.text('Avisos y notificaciones'), findsOneWidget);
+          expect(find.text('Examen parcial unidad 2 el próximo viernes'),
+              findsOneWidget);
+          expect(find.text('Nuevo'), findsOneWidget);
+          expect(find.text('Editado'), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        },
+      );
+
+      testWidgets(
+        'CrearAnuncioScreen modo edición renderiza sin overflows en ${size.width.toInt()}x${size.height.toInt()}',
+        (tester) async {
+          tester.view.physicalSize = size;
+          tester.view.devicePixelRatio = 1.0;
+          addTearDown(tester.view.reset);
+
+          await tester.pumpWidget(
+            MaterialApp(
+              home: CrearAnuncioScreen(
+                profesorId: 'prof-1',
+                nombreProfesor: 'Ana Estrada',
+                materias: const [
+                  {'id': 'mat-1', 'nombre': 'Programación Móvil'},
+                ],
+                anuncioExistente: sampleAnuncios.first,
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(find.text('Editar aviso'), findsOneWidget);
+          expect(find.text('Guardar cambios'), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+
+    testWidgets('AvisosProfesorScreen filtra por tipo y elimina con confirmación',
+        (tester) async {
+      tester.view.physicalSize = const Size(360, 780);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: AvisosProfesorScreen(
+            profesorId: 'prof-1',
+            nombreProfesor: 'Ana Estrada',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Mis avisos'), findsOneWidget);
+      expect(find.text('Examen parcial unidad 2 el próximo viernes'),
+          findsOneWidget);
+      expect(find.text('Entrega de práctica con captura'), findsOneWidget);
+
+      await tester.ensureVisible(find.text('Tarea (1)'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Tarea (1)'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Examen parcial unidad 2 el próximo viernes'),
+          findsNothing);
+      expect(find.text('Entrega de práctica con captura'), findsOneWidget);
+
+      await tester.ensureVisible(find.text('Eliminar'));
+      await tester.tap(find.text('Eliminar'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Eliminar aviso'), findsOneWidget);
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Eliminar'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Entrega de práctica con captura'), findsNothing);
+      expect(find.text('Aviso eliminado correctamente'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   });
 }

@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import '../service/api_service.dart';
 import '../service/session_wrapper.dart';
 import '../theme/app_colors.dart';
+import '../widgets/admin_ui_components.dart';
 
 class VisitasScreen extends StatefulWidget {
   final String adminId;
@@ -296,9 +297,11 @@ class _VisitasScreenState extends State<VisitasScreen> {
               ),
             ),
             Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : RefreshIndicator(
+              child: ResponsiveContainer(
+                padding: EdgeInsets.zero,
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : RefreshIndicator(
                       onRefresh: _cargarVisitas,
                       child: items.isEmpty
                           ? ListView(
@@ -375,6 +378,7 @@ class _VisitasScreenState extends State<VisitasScreen> {
                               },
                             ),
                     ),
+              ),
             ),
           ],
         ),

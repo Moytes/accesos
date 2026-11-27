@@ -968,6 +968,7 @@ class _ClaseQrScreenState extends State<ClaseQrScreen> {
                     Expanded(
                       child: DropdownButtonFormField<int>(
                         value: _duracionMinutos,
+                        isExpanded: true,
                         decoration: const InputDecoration(
                           labelText: 'Duración',
                           border: OutlineInputBorder(),
@@ -977,7 +978,11 @@ class _ClaseQrScreenState extends State<ClaseQrScreen> {
                             .map(
                               (m) => DropdownMenuItem(
                                 value: m,
-                                child: Text('$m min'),
+                                child: Text(
+                                  '$m min',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                             )
                             .toList(),
@@ -990,6 +995,7 @@ class _ClaseQrScreenState extends State<ClaseQrScreen> {
                     Expanded(
                       child: DropdownButtonFormField<int>(
                         value: _usosMaximos,
+                        isExpanded: true,
                         decoration: const InputDecoration(
                           labelText: 'Cupo máximo',
                           border: OutlineInputBorder(),
@@ -999,7 +1005,11 @@ class _ClaseQrScreenState extends State<ClaseQrScreen> {
                             .map(
                               (u) => DropdownMenuItem(
                                 value: u,
-                                child: Text('$u alumnos'),
+                                child: Text(
+                                  '$u alumnos',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                             )
                             .toList(),

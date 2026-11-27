@@ -1387,7 +1387,7 @@ class ApiService {
 
   Future<Map<String, dynamic>?> crearAnuncio({
     required String profesorId,
-    required String materiaId,
+    String? materiaId,
     String? claseId,
     String? grupo,
     required String titulo,
@@ -1400,9 +1400,9 @@ class ApiService {
         '/anuncios',
         body: {
           'profesorId': profesorId,
-          'materiaId': materiaId,
-          'claseId': claseId,
-          'grupo': grupo,
+          if (materiaId != null && materiaId.isNotEmpty) 'materiaId': materiaId,
+          if (claseId != null && claseId.isNotEmpty) 'claseId': claseId,
+          if (grupo != null && grupo.isNotEmpty) 'grupo': grupo,
           'titulo': titulo,
           'mensaje': mensaje,
           'tipo': tipo,
@@ -1415,7 +1415,88 @@ class ApiService {
       lastError = ApiClient.extractErrorMessage(response);
       return null;
     } catch (e) {
+      lastError = 'No se pudo conectar con el servidor';
       return null;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getAnunciosByProfesor(
+    String profesorId, {
+    String? materiaId,
+    String? claseId,
+    String? grupo,
+    String? tipo,
+  }) {
+    final params = <String, String>{};
+    if (materiaId != null && materiaId.isNotEmpty) {
+      params['materiaId'] = materiaId;
+    }
+    if (claseId != null && claseId.isNotEmpty) {
+      params['claseId'] = claseId;
+    }
+    if (grupo != null && grupo.isNotEmpty) {
+      params['grupo'] = grupo;
+    }
+    if (tipo != null && tipo.isNotEmpty) {
+      params['tipo'] = tipo;
+    }
+    final query = params.isEmpty ? '' : '?${Uri(queryParameters: params).query}';
+    return _getWithOfflineCache(
+      cacheKey:
+          'anuncios_profesor_${profesorId}_${materiaId ?? ''}_${claseId ?? ''}_${grupo ?? ''}_${tipo ?? ''}',
+      path: '/anuncios/profesor/$profesorId$query',
+      parser: _asMapList,
+      fallback: const [],
+    );
+  }
+
+  Future<Map<String, dynamic>?> actualizarAnuncio({
+    required String anuncioId,
+    required String titulo,
+    required String mensaje,
+    required String tipo,
+    String? materiaId,
+    String? claseId,
+    String? grupo,
+  }) async {
+    lastError = null;
+    try {
+      final response = await _client.put(
+        '/anuncios/$anuncioId',
+        body: {
+          'titulo': titulo,
+          'mensaje': mensaje,
+          'tipo': tipo,
+          if (materiaId != null) 'materiaId': materiaId,
+          if (claseId != null) 'claseId': claseId,
+          if (grupo != null) 'grupo': grupo,
+        },
+      );
+      if (response.statusCode == 200) {
+        await _cache.invalidatePrefix('anuncios_');
+        return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+      }
+      lastError = ApiClient.extractErrorMessage(response);
+      return null;
+    } catch (e) {
+      lastError = 'No se pudo conectar con el servidor';
+      return null;
+    }
+  }
+
+  Future<bool> eliminarAnuncio(String anuncioId) async {
+    lastError = null;
+    try {
+      final response = await _client.delete('/anuncios/$anuncioId');
+      if (response.statusCode == 200 || response.statusCode == 204) {
+        await _cache.invalidatePrefix('anuncios_');
+        return true;
+      }
+      lastError = ApiClient.extractErrorMessage(response);
+      return false;
+    } catch (e) {
+      lastError = 'No se pudo conectar con el servidor';
+      return false;
     }
   }
 

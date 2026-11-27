@@ -4,6 +4,7 @@ import '../service/connectivity_service.dart';
 import '../service/session_service.dart';
 import '../service/session_wrapper.dart';
 import '../theme/app_colors.dart';
+import '../widgets/admin_ui_components.dart';
 import 'qralumnos.dart';
 
 class PedirSalonScreen extends StatefulWidget {
@@ -211,8 +212,10 @@ class _PedirSalonScreenState extends State<PedirSalonScreen> {
             ? const Center(child: CircularProgressIndicator())
             : RefreshIndicator(
                 onRefresh: _cargarDatos,
-                child: ListView(
-                  padding: const EdgeInsets.all(16),
+                child: ResponsiveContainer(
+                  padding: EdgeInsets.zero,
+                  child: ListView(
+                    padding: const EdgeInsets.all(16),
                   children: [
                     if (_misReservaciones.isNotEmpty) ...[
                       const Text(
@@ -248,6 +251,7 @@ class _PedirSalonScreenState extends State<PedirSalonScreen> {
                             ),
                             const SizedBox(height: 14),
                             DropdownButtonFormField<String>(
+                              isExpanded: true,
                               value: libres.any(
                                 (s) => s['id']?.toString() == _salonSeleccionadoId,
                               )
@@ -266,6 +270,7 @@ class _PedirSalonScreenState extends State<PedirSalonScreen> {
                                   value: id,
                                   child: Text(
                                     '$num ${nom.toString().isNotEmpty ? "· $nom" : ""} ${edif.toString().isNotEmpty ? "($edif)" : ""}',
+                                    maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 );
@@ -290,6 +295,7 @@ class _PedirSalonScreenState extends State<PedirSalonScreen> {
                                 Expanded(
                                   child: DropdownButtonFormField<String>(
                                     value: _tipoUso,
+                                    isExpanded: true,
                                     decoration: const InputDecoration(
                                       labelText: 'Tipo de uso',
                                       border: OutlineInputBorder(),
@@ -297,19 +303,35 @@ class _PedirSalonScreenState extends State<PedirSalonScreen> {
                                     items: const [
                                       DropdownMenuItem(
                                         value: 'asesoria',
-                                        child: Text('Asesoría'),
+                                        child: Text(
+                                          'Asesoría',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
                                       ),
                                       DropdownMenuItem(
                                         value: 'extraordinario',
-                                        child: Text('Extraordinario'),
+                                        child: Text(
+                                          'Extraordinario',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
                                       ),
                                       DropdownMenuItem(
                                         value: 'evento',
-                                        child: Text('Evento'),
+                                        child: Text(
+                                          'Evento',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
                                       ),
                                       DropdownMenuItem(
                                         value: 'clase_reposicion',
-                                        child: Text('Reposición'),
+                                        child: Text(
+                                          'Reposición',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
                                       ),
                                     ],
                                     onChanged: (v) {
@@ -321,6 +343,7 @@ class _PedirSalonScreenState extends State<PedirSalonScreen> {
                                 Expanded(
                                   child: DropdownButtonFormField<int>(
                                     value: _duracionMinutos,
+                                    isExpanded: true,
                                     decoration: const InputDecoration(
                                       labelText: 'Duración',
                                       border: OutlineInputBorder(),
@@ -329,7 +352,11 @@ class _PedirSalonScreenState extends State<PedirSalonScreen> {
                                         .map(
                                           (m) => DropdownMenuItem(
                                             value: m,
-                                            child: Text('$m min'),
+                                            child: Text(
+                                              '$m min',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
                                           ),
                                         )
                                         .toList(),
@@ -377,6 +404,7 @@ class _PedirSalonScreenState extends State<PedirSalonScreen> {
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 12),
                                 child: DropdownButtonFormField<String>(
+                                  isExpanded: true,
                                   value: _claseSeleccionadaId,
                                   decoration: const InputDecoration(
                                     labelText: 'Vincular materia / clase',
@@ -389,6 +417,7 @@ class _PedirSalonScreenState extends State<PedirSalonScreen> {
                                               .toString(),
                                           child: Text(
                                             m['nombre']?.toString() ?? 'Clase',
+                                            maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                           ),
                                         ),
@@ -462,6 +491,7 @@ class _PedirSalonScreenState extends State<PedirSalonScreen> {
                       }).toList(),
                     ),
                   ],
+                ),
                 ),
               ),
       ),

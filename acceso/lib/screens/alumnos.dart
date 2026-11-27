@@ -268,6 +268,8 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
                             children: [
                               _buildJustificantesButton(),
                               const SizedBox(height: 12),
+                              _buildAvisosBannerButton(),
+                              const SizedBox(height: 12),
                               _buildAccesosRapidosAlumno(),
                               const SizedBox(height: 16),
                               Row(
@@ -401,6 +403,103 @@ class _AsistenciasScreenState extends State<AsistenciasScreen> {
               Icons.arrow_forward_ios,
               color: Colors.white,
               size: 16,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─── BUILD AVISOS BANNER BUTTON ───────────────────────────────────
+  Widget _buildAvisosBannerButton() {
+    final hasUnread = _notificacionesNoLeidas > 0;
+    return GestureDetector(
+      onTap: _irANotificaciones,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: hasUnread
+                ? AppColors.warning
+                : AppColors.primary.withValues(alpha: 0.25),
+            width: hasUnread ? 1.5 : 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: (hasUnread ? AppColors.warning : AppColors.primary)
+                    .withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.campaign_outlined,
+                color: hasUnread ? AppColors.warning : AppColors.primary,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Avisos de profesores',
+                    style: TextStyle(
+                      color: AppColors.primaryDark,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Text(
+                    hasUnread
+                        ? 'Tienes $_notificacionesNoLeidas ${_notificacionesNoLeidas == 1 ? 'aviso nuevo' : 'avisos nuevos'}'
+                        : 'Consulta avisos, tareas y exámenes de tus clases',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: Colors.grey[600], fontSize: 11.5),
+                  ),
+                ],
+              ),
+            ),
+            if (hasUnread) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                decoration: BoxDecoration(
+                  color: AppColors.warning,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  _notificacionesNoLeidas > 99
+                      ? '99+'
+                      : '$_notificacionesNoLeidas',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(width: 6),
+            const Icon(
+              Icons.arrow_forward_ios,
+              color: AppColors.primaryDark,
+              size: 15,
             ),
           ],
         ),

@@ -26,9 +26,9 @@ class ApiClient {
   http.Client? _overrideHttpClient;
 
   @visibleForTesting
-  void configureForTest({http.Client? httpClient}) {
+  void configureForTest({http.Client? httpClient, String? token}) {
     _overrideHttpClient = httpClient;
-    _cachedToken = null;
+    _cachedToken = token;
     _unauthorizedDispatching = false;
   }
 

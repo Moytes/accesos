@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import '../service/api_service.dart';
+import '../service/session_service.dart';
 import '../service/session_wrapper.dart';
 import '../theme/app_colors.dart';
 import 'alumnos_materia.dart';
 import 'asistencias_materias_screen.dart';
+import 'avisos_profesor_screen.dart';
 import 'calificaciones_screens.dart';
 import 'qralumnos.dart';
 
@@ -141,6 +143,7 @@ class _GruposScreenState extends State<GruposScreen> {
                                             materiaId: claseId,
                                             materiaNombre: widget.materiaNombre,
                                             grupo: grupo,
+                                            materiaRealId: widget.materiaId,
                                           ),
                                         ),
                                       );
@@ -252,6 +255,31 @@ class _GruposScreenState extends State<GruposScreen> {
                                                         CalificacionesClaseScreen(
                                                       claseId: claseId,
                                                       nombreMateria:
+                                                          widget.materiaNombre,
+                                                      grupo: grupo,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                              _actionPill(
+                                                icon: Icons.campaign_outlined,
+                                                label: 'Avisos',
+                                                onTap: () => Navigator.push(
+                                                  context,
+                                                  MaterialPageRoute(
+                                                    builder: (_) =>
+                                                        AvisosProfesorScreen(
+                                                      profesorId:
+                                                          SessionService()
+                                                                  .userId ??
+                                                              '',
+                                                      nombreProfesor:
+                                                          SessionService()
+                                                              .nombre,
+                                                      materiaId:
+                                                          widget.materiaId,
+                                                      claseId: claseId,
+                                                      materiaNombre:
                                                           widget.materiaNombre,
                                                       grupo: grupo,
                                                     ),

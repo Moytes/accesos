@@ -3,12 +3,13 @@ import '../navigation/role_router.dart';
 import '../service/api_service.dart';
 import '../service/session_service.dart';
 import '../service/session_wrapper.dart';
+import '../theme/app_colors.dart';
 import '../widgets/common_widgets.dart';
+import 'avisos_profesor_screen.dart';
 import 'crear_anuncio_screen.dart';
 import 'grupos_screen.dart';
 import 'justificantes_profesor_screen.dart';
 import 'noticias_screen.dart';
-import 'notificaciones_screen.dart';
 import 'pedir_salon_screen.dart';
 import 'profile_screen.dart';
 import 'qralumnos.dart';
@@ -71,17 +72,18 @@ class _ProfessorDashboardState extends State<ProfessorDashboard> {
     }
   }
 
-  // ─── NAVEGAR A NOTIFICACIONES ─────────────────────────────────────
+  // ─── NAVEGAR A MIS AVISOS DEL PROFESOR ──────────────────────────────
   void _irANotificaciones() {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => NotificacionesScreen(
-          userId: widget.userId,
+        builder: (context) => AvisosProfesorScreen(
+          profesorId: widget.userId,
+          nombreProfesor: widget.nombre ?? 'Profesor',
+          materias: _materias,
         ),
       ),
     ).then((_) {
-      // Al regresar, refrescar contador
       _cargarNotificaciones();
     });
   }
@@ -243,8 +245,8 @@ class _ProfessorDashboardState extends State<ProfessorDashboard> {
                       _buildBotonSalon(),
                       const SizedBox(height: 12),
 
-                      // ── Botón crear aviso ───────────────────────────────
-                      _buildBotonAviso(),
+                      // ── Botones de avisos (Crear y Gestionar) ───────────
+                      _buildAccionesAvisos(),
                       const SizedBox(height: 20),
 
                       // ── Título materias ────────────────────────────────
@@ -350,6 +352,100 @@ class _ProfessorDashboardState extends State<ProfessorDashboard> {
               ),
             ),
             Icon(Icons.arrow_forward_ios, color: Colors.white, size: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Acciones de avisos (Crear y Mis avisos) ───────────────────────────────
+  Widget _buildAccionesAvisos() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 520;
+        if (wide) {
+          return Row(
+            children: [
+              Expanded(child: _buildBotonAviso()),
+              const SizedBox(width: 12),
+              Expanded(child: _buildBotonMisAvisos()),
+            ],
+          );
+        }
+        return Column(
+          children: [
+            _buildBotonAviso(),
+            const SizedBox(height: 10),
+            _buildBotonMisAvisos(),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildBotonMisAvisos() {
+    return GestureDetector(
+      onTap: () {
+        _sessionService.recordActivity();
+        _irANotificaciones();
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceSoftBlue,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: AppColors.primary.withValues(alpha: 0.28),
+            width: 1.2,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.primaryDark.withValues(alpha: 0.10),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.edit_note_outlined,
+                color: AppColors.primaryDark,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Mis avisos',
+                    style: TextStyle(
+                      color: AppColors.primaryDark,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Text(
+                    'Ver, editar o eliminar tus avisos enviados',
+                    style: TextStyle(color: Colors.black54, fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.arrow_forward_ios,
+              color: AppColors.primaryDark,
+              size: 16,
+            ),
           ],
         ),
       ),
@@ -826,102 +922,153 @@ class _ProfessorDashboardState extends State<ProfessorDashboard> {
           ),
           const SizedBox(height: 12),
 
-          // Botón justificantes con contador
-          FutureBuilder<int>(
-            future: _apiService.getClaseIdAndCount(materia['id']),
-            builder: (context, snapshot) {
-              final count = snapshot.data ?? 0;
-              final hasCount = count > 0;
+          // Acciones rápidas de materia: Justificantes y Avisos
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            children: [
+              FutureBuilder<int>(
+                future: _apiService.getClaseIdAndCount(materia['id']),
+                builder: (context, snapshot) {
+                  final count = snapshot.data ?? 0;
+                  final hasCount = count > 0;
 
-              return GestureDetector(
+                  return GestureDetector(
+                    onTap: () {
+                      _sessionService.recordActivity();
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => JustificantesProfesorScreen(
+                            profesorId: widget.userId,
+                            claseId: materia['id'],
+                            materiaNombre: materia['nombre'] ?? 'Sin nombre',
+                            grupo: '',
+                          ),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: hasCount
+                            ? const Color(0xFFFF9800).withOpacity(0.08)
+                            : Colors.grey[50],
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: hasCount
+                              ? const Color(0xFFFF9800)
+                              : const Color(0xFF004C8C).withOpacity(0.3),
+                          width: hasCount ? 1.5 : 1,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.description_outlined,
+                            color: hasCount
+                                ? const Color(0xFFFF9800)
+                                : const Color(0xFF004C8C),
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Justificantes',
+                            style: TextStyle(
+                              color: hasCount
+                                  ? const Color(0xFFFF9800)
+                                  : const Color(0xFF004C8C),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          if (hasCount) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFF9800),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                '$count',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                          if (snapshot.connectionState ==
+                              ConnectionState.waiting) ...[
+                            const SizedBox(width: 8),
+                            const SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.5,
+                                color: Color(0xFF004C8C),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+              GestureDetector(
                 onTap: () {
-                  // Registrar actividad
                   _sessionService.recordActivity();
-                  
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => JustificantesProfesorScreen(
+                      builder: (_) => AvisosProfesorScreen(
                         profesorId: widget.userId,
-                        claseId: materia['id'],
-                        materiaNombre: materia['nombre'] ?? 'Sin nombre',
-                        grupo: '',
+                        nombreProfesor: widget.nombre ?? 'Profesor',
+                        materias: _materias,
+                        materiaId: materia['id']?.toString(),
+                        materiaNombre: materia['nombre']?.toString(),
                       ),
                     ),
                   );
                 },
                 child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 10),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   decoration: BoxDecoration(
-                    color: hasCount
-                        ? const Color(0xFFFF9800).withOpacity(0.08)
-                        : Colors.grey[50],
+                    color: AppColors.surfaceSoftBlue,
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                      color: hasCount
-                          ? const Color(0xFFFF9800)
-                          : const Color(0xFF004C8C).withOpacity(0.3),
-                      width: hasCount ? 1.5 : 1,
+                      color: AppColors.primary.withValues(alpha: 0.3),
                     ),
                   ),
-                  child: Row(
+                  child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                        Icons.description_outlined,
-                        color: hasCount
-                            ? const Color(0xFFFF9800)
-                            : const Color(0xFF004C8C),
+                        Icons.campaign_outlined,
+                        color: AppColors.primary,
                         size: 18,
                       ),
-                      const SizedBox(width: 8),
+                      SizedBox(width: 8),
                       Text(
-                        'Justificantes',
+                        'Avisos',
                         style: TextStyle(
-                          color: hasCount
-                              ? const Color(0xFFFF9800)
-                              : const Color(0xFF004C8C),
+                          color: AppColors.primary,
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      if (hasCount) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFF9800),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            '$count',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                      if (snapshot.connectionState ==
-                          ConnectionState.waiting) ...[
-                        const SizedBox(width: 8),
-                        const SizedBox(
-                          width: 12,
-                          height: 12,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 1.5,
-                            color: Color(0xFF004C8C),
-                          ),
-                        ),
-                      ],
                     ],
                   ),
                 ),
-              );
-            },
+              ),
+            ],
           ),
         ],
       ),

@@ -22,6 +22,7 @@ class OfflineCacheService {
   String _activeUserId = 'anon';
   final Map<String, String> _memoryFallback = {};
   Directory? _overrideRootDir;
+  bool _memoryOnly = false;
 
   String get activeUserId => _activeUserId;
 
@@ -31,8 +32,9 @@ class OfflineCacheService {
   }
 
   @visibleForTesting
-  void configureForTest({Directory? rootDir}) {
+  void configureForTest({Directory? rootDir, bool memoryOnly = false}) {
     _overrideRootDir = rootDir;
+    _memoryOnly = memoryOnly;
     _memoryFallback.clear();
   }
 
@@ -54,6 +56,7 @@ class OfflineCacheService {
   }
 
   Future<Directory?> _resolveUserDir(String userId) async {
+    if (_memoryOnly) return null;
     final safeUid = _sanitizeSegment(userId.isEmpty ? 'anon' : userId);
     try {
       final baseDir =

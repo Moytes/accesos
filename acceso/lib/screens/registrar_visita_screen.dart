@@ -6,6 +6,7 @@ import '../service/api_service.dart';
 import '../service/connectivity_service.dart';
 import '../service/session_wrapper.dart';
 import '../theme/app_colors.dart';
+import '../widgets/admin_ui_components.dart';
 
 class RegistrarVisitaScreen extends StatefulWidget {
   final String adminId;
@@ -219,9 +220,11 @@ class _RegistrarVisitaScreenState extends State<RegistrarVisitaScreen> {
           foregroundColor: Colors.white,
           title: const Text('Registrar Visita'),
         ),
-        body: Form(
-          key: _formKey,
-          child: ListView(
+        body: ResponsiveContainer(
+          padding: EdgeInsets.zero,
+          child: Form(
+            key: _formKey,
+            child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
               Container(
@@ -367,6 +370,7 @@ class _RegistrarVisitaScreenState extends State<RegistrarVisitaScreen> {
                 ),
               ),
             ],
+          ),
           ),
         ),
       ),

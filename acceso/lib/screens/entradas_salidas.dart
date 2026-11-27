@@ -8,6 +8,7 @@ import '../service/api_service.dart';
 import '../service/connectivity_service.dart';
 import '../service/session_wrapper.dart';
 import '../theme/app_colors.dart';
+import '../widgets/admin_ui_components.dart';
 
 class EntradasSalidasScreen extends StatefulWidget {
   final String? userIdFilter;
@@ -244,6 +245,7 @@ class _EntradasSalidasScreenState extends State<EntradasSalidasScreen> {
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String?>(
                       value: _zonaFiltroId,
+                      isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'Filtrar por zona',
                         isDense: true,
@@ -252,13 +254,19 @@ class _EntradasSalidasScreenState extends State<EntradasSalidasScreen> {
                       items: [
                         const DropdownMenuItem<String?>(
                           value: null,
-                          child: Text('Todas las zonas'),
+                          child: Text(
+                            'Todas las zonas',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                         ..._zonas.map(
                           (z) => DropdownMenuItem<String?>(
                             value: z['id']?.toString(),
                             child: Text(
                               (z['nombre'] ?? z['codigo'] ?? 'Zona').toString(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ),
@@ -288,9 +296,11 @@ class _EntradasSalidasScreenState extends State<EntradasSalidasScreen> {
               ),
             ),
             Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : RefreshIndicator(
+              child: ResponsiveContainer(
+                padding: EdgeInsets.zero,
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : RefreshIndicator(
                       onRefresh: _cargar,
                       child: items.isEmpty
                           ? ListView(
@@ -395,6 +405,7 @@ class _EntradasSalidasScreenState extends State<EntradasSalidasScreen> {
                               },
                             ),
                     ),
+              ),
             ),
           ],
         ),

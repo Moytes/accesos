@@ -1,18 +1,32 @@
 import 'package:flutter/material.dart';
 import '../config/api_config.dart';
 import '../service/api_service.dart';
+import '../service/session_wrapper.dart';
+import '../theme/app_colors.dart';
+import '../widgets/admin_ui_components.dart';
+import '../widgets/anuncio_helpers.dart';
 
 class CrearAnuncioScreen extends StatefulWidget {
   final String profesorId;
-  final String? nombreProfesor; // ← NUEVO: para mostrar en las notificaciones
+  final String? nombreProfesor;
   final List<Map<String, dynamic>> materias;
+  final Map<String, dynamic>? anuncioExistente;
+  final String? initialMateriaId;
+  final String? initialClaseId;
+  final String? initialGrupo;
+  final String? initialMateriaNombre;
 
   const CrearAnuncioScreen({
-    Key? key,
+    super.key,
     required this.profesorId,
     this.nombreProfesor,
-    required this.materias,
-  }) : super(key: key);
+    this.materias = const [],
+    this.anuncioExistente,
+    this.initialMateriaId,
+    this.initialClaseId,
+    this.initialGrupo,
+    this.initialMateriaNombre,
+  });
 
   @override
   State<CrearAnuncioScreen> createState() => _CrearAnuncioScreenState();
@@ -23,120 +37,252 @@ class _CrearAnuncioScreenState extends State<CrearAnuncioScreen> {
   final _tituloCtrl = TextEditingController();
   final _mensajeCtrl = TextEditingController();
 
-  // ── Selecciones ──
+  bool get _isEditMode => widget.anuncioExistente != null;
+
   String _tipo = 'aviso';
+  List<Map<String, dynamic>> _materias = [];
   Map<String, dynamic>? _materiaSeleccionada;
   String? _grupoSeleccionado;
+  String? _claseIdSeleccionada;
   bool _todasLasMaterias = true;
 
-  // ── Estado ──
-  List<String> _grupos = [];
+  List<Map<String, dynamic>> _grupos = [];
+  bool _loadingMaterias = false;
   bool _loadingGrupos = false;
   bool _isPublicando = false;
 
-  final Map<String, Map<String, dynamic>> _tipoInfo = {
-    'aviso': {
-      'label': 'Aviso general',
-      'icon': Icons.campaign_outlined,
-      'color': const Color(0xFF004C8C),
-    },
-    'falta': {
-      'label': 'Falta del profesor',
-      'icon': Icons.event_busy_outlined,
-      'color': const Color(0xFFE53935),
-    },
-    'tarea': {
-      'label': 'Tarea / Actividad',
-      'icon': Icons.assignment_outlined,
-      'color': const Color(0xFF43A047),
-    },
-  };
+  @override
+  void initState() {
+    super.initState();
+    _inicializarEstado();
+  }
 
-  // ─── Cuando cambia la materia, carga los grupos ──────────────────────
-  Future<void> _onMateriaChanged(Map<String, dynamic>? materia) async {
+  Future<void> _inicializarEstado() async {
+    _materias = widget.materias
+        .map((m) => {
+              'id': m['id']?.toString() ?? '',
+              'nombre': (m['nombre'] ?? m['nom_mat'] ?? 'Sin nombre').toString(),
+            })
+        .where((m) => (m['id'] as String).isNotEmpty)
+        .toList();
+
+    final existente = widget.anuncioExistente;
+    if (existente != null) {
+      _tituloCtrl.text = (existente['titulo'] ?? '').toString();
+      _mensajeCtrl.text = (existente['mensaje'] ?? '').toString();
+      _tipo = AnuncioHelper.normalizeTipo(existente['tipo']?.toString());
+      _todasLasMaterias = false;
+    }
+
+    final initMateriaId =
+        (existente?['materia_id'] ?? widget.initialMateriaId)?.toString();
+    final initClaseId =
+        (existente?['clase_id'] ?? widget.initialClaseId)?.toString();
+    final initGrupo = (existente?['grupo'] ?? widget.initialGrupo)?.toString();
+    final initMateriaNombre =
+        (existente?['materia_nombre'] ?? widget.initialMateriaNombre)?.toString();
+
+    if (initMateriaId != null && initMateriaId.isNotEmpty ||
+        initClaseId != null && initClaseId.isNotEmpty) {
+      _todasLasMaterias = false;
+    }
+
+    if (_materias.isEmpty && _todasLasMaterias == false) {
+      setState(() => _loadingMaterias = true);
+      final fetched = await _api.getMateriasByProfesor(widget.profesorId);
+      if (!mounted) return;
+      _materias = fetched
+          .map((m) => {
+                'id': m['id']?.toString() ?? '',
+                'nombre':
+                    (m['nom_mat'] ?? m['nombre'] ?? 'Sin nombre').toString(),
+              })
+          .where((m) => (m['id'] as String).isNotEmpty)
+          .toList();
+      if (_materias.isEmpty &&
+          initMateriaId != null &&
+          initMateriaId.isNotEmpty) {
+        _materias = [
+          {
+            'id': initMateriaId,
+            'nombre': (initMateriaNombre != null && initMateriaNombre.isNotEmpty)
+                ? initMateriaNombre
+                : 'Materia seleccionada',
+          }
+        ];
+      }
+      _loadingMaterias = false;
+    }
+
+    if (initMateriaId != null && initMateriaId.isNotEmpty) {
+      final match = _materias.cast<Map<String, dynamic>?>().firstWhere(
+            (m) => m?['id']?.toString() == initMateriaId,
+            orElse: () => null,
+          );
+      final selected = match ??
+          {
+            'id': initMateriaId,
+            'nombre': (initMateriaNombre != null && initMateriaNombre.isNotEmpty)
+                ? initMateriaNombre
+                : 'Materia seleccionada',
+          };
+      if (match == null) {
+        _materias = [..._materias, selected];
+      }
+      await _onMateriaChanged(
+        selected,
+        preselectGrupo:
+            (initGrupo != null && initGrupo.isNotEmpty) ? initGrupo : null,
+        preselectClaseId:
+            (initClaseId != null && initClaseId.isNotEmpty) ? initClaseId : null,
+      );
+    } else if (initClaseId != null && initClaseId.isNotEmpty) {
+      _claseIdSeleccionada = initClaseId;
+      _grupoSeleccionado =
+          (initGrupo != null && initGrupo.isNotEmpty) ? initGrupo : null;
+      if (mounted) setState(() {});
+    } else if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _onMateriaChanged(
+    Map<String, dynamic>? materia, {
+    String? preselectGrupo,
+    String? preselectClaseId,
+  }) async {
     setState(() {
       _materiaSeleccionada = materia;
-      _grupoSeleccionado = null;
+      _grupoSeleccionado = preselectGrupo;
+      _claseIdSeleccionada = preselectClaseId;
       _grupos = [];
     });
 
-    if (materia == null) return;
+    final matId = materia?['id']?.toString() ?? '';
+    if (matId.isEmpty) return;
 
     setState(() => _loadingGrupos = true);
+    final rawGrupos = await _api.getGruposByMateria(matId);
+    if (!mounted) return;
 
-    final grupos = await _api.getGruposByMateria(materia['id'] as String);
+    final normalizedGrupos = rawGrupos
+        .map((g) => {
+              'grupo': (g['grupo'] ?? g['nombre'] ?? '').toString(),
+              'clase_id': (g['clase_id'] ?? g['id'] ?? '').toString(),
+            })
+        .where((g) => (g['grupo'] as String).isNotEmpty)
+        .toList();
+
+    String? resolvedClase = preselectClaseId;
+    if (preselectGrupo != null &&
+        preselectGrupo.isNotEmpty &&
+        (resolvedClase == null || resolvedClase.isEmpty)) {
+      final hit = normalizedGrupos.cast<Map<String, dynamic>?>().firstWhere(
+            (g) =>
+                g?['grupo']?.toString().toLowerCase() ==
+                preselectGrupo.toLowerCase(),
+            orElse: () => null,
+          );
+      resolvedClase = hit?['clase_id']?.toString();
+    }
 
     setState(() {
-      _grupos = grupos.map((g) => g['grupo'] as String).toList();
+      _grupos = normalizedGrupos;
+      _claseIdSeleccionada =
+          (resolvedClase != null && resolvedClase.isNotEmpty)
+              ? resolvedClase
+              : null;
       _loadingGrupos = false;
     });
   }
 
-  // ─── PUBLICAR ANUNCIO Y ENVIAR NOTIFICACIONES ────────────────────────
-  Future<void> _publicar() async {
-    if (_tituloCtrl.text.trim().isEmpty || _mensajeCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Por favor completa título y mensaje'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+  void _selectGrupo(Map<String, dynamic>? item) {
+    setState(() {
+      if (item == null) {
+        _grupoSeleccionado = null;
+        _claseIdSeleccionada = null;
+      } else {
+        _grupoSeleccionado = item['grupo']?.toString();
+        final cid = item['clase_id']?.toString() ?? '';
+        _claseIdSeleccionada = cid.isNotEmpty ? cid : null;
+      }
+    });
+  }
+
+  void _showMessage(String text, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(text), backgroundColor: color),
+    );
+  }
+
+  Future<void> _guardar() async {
+    final titulo = _tituloCtrl.text.trim();
+    final mensaje = _mensajeCtrl.text.trim();
+
+    if (titulo.isEmpty || mensaje.isEmpty) {
+      _showMessage('Por favor completa título y mensaje', AppColors.warning);
       return;
     }
 
-    if (!_todasLasMaterias && _materiaSeleccionada == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Selecciona una materia'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+    if (!_todasLasMaterias &&
+        _materiaSeleccionada == null &&
+        (_claseIdSeleccionada == null || _claseIdSeleccionada!.isEmpty)) {
+      _showMessage('Selecciona una materia o clase destino', AppColors.warning);
       return;
     }
 
     setState(() => _isPublicando = true);
 
+    if (_isEditMode) {
+      await _guardarEdicion(titulo, mensaje);
+      return;
+    }
+
     bool exito = false;
     String? anuncioId;
-    List<String> materiasIds = [];
+    final materiasIds = <String>[];
 
     if (_todasLasMaterias) {
-      // Publicar en TODAS las materias del profesor
-      for (final materia in widget.materias) {
+      for (final materia in _materias) {
+        final mid = materia['id']?.toString() ?? '';
+        if (mid.isEmpty) continue;
         final result = await _api.crearAnuncio(
           profesorId: widget.profesorId,
-          materiaId: materia['id'] as String,
+          materiaId: mid,
           grupo: null,
-          titulo: _tituloCtrl.text.trim(),
-          mensaje: _mensajeCtrl.text.trim(),
+          titulo: titulo,
+          mensaje: mensaje,
           tipo: _tipo,
         );
         if (result != null) {
           exito = true;
-          anuncioId = result['id'] as String?;
-          materiasIds.add(materia['id'] as String);
+          anuncioId = result['id']?.toString();
+          materiasIds.add(mid);
         }
       }
     } else {
-      // Publicar solo en la materia seleccionada
+      final mid = _materiaSeleccionada?['id']?.toString();
       final result = await _api.crearAnuncio(
         profesorId: widget.profesorId,
-        materiaId: _materiaSeleccionada!['id'] as String,
+        materiaId: (mid != null && mid.isNotEmpty) ? mid : null,
+        claseId: _claseIdSeleccionada,
         grupo: _grupoSeleccionado,
-        titulo: _tituloCtrl.text.trim(),
-        mensaje: _mensajeCtrl.text.trim(),
+        titulo: titulo,
+        mensaje: mensaje,
         tipo: _tipo,
       );
       if (result != null) {
         exito = true;
-        anuncioId = result['id'] as String?;
-        materiasIds.add(_materiaSeleccionada!['id'] as String);
+        anuncioId = result['id']?.toString();
+        if (mid != null && mid.isNotEmpty) {
+          materiasIds.add(mid);
+        } else if (_claseIdSeleccionada != null) {
+          materiasIds.add(_claseIdSeleccionada!);
+        }
       }
     }
 
-    // ── Si el anuncio se publicó, enviar notificaciones push ──
     if (exito && mounted) {
-      // Enviar notificaciones push para cada materia
       for (final materiaId in materiasIds) {
         await _enviarNotificacionesPush(
           materiaId: materiaId,
@@ -146,30 +292,51 @@ class _CrearAnuncioScreenState extends State<CrearAnuncioScreen> {
       }
     }
 
+    if (!mounted) return;
     setState(() => _isPublicando = false);
 
-    if (!mounted) return;
-
     if (exito) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('✓ Aviso publicado exitosamente'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 3),
-        ),
-      );
+      _showMessage('Aviso publicado exitosamente', AppColors.successDark);
       Navigator.pop(context, true);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Error al publicar el aviso'),
-          backgroundColor: Colors.red,
-        ),
+      _showMessage(
+        _api.lastError ?? 'Error al publicar el aviso',
+        AppColors.dangerRed,
       );
     }
   }
 
-  // ─── ENVIAR NOTIFICACIONES PUSH ──────────────────────────────────────
+  Future<void> _guardarEdicion(String titulo, String mensaje) async {
+    final existente = widget.anuncioExistente!;
+    final anuncioId = existente['id']?.toString() ?? '';
+    final materiaId = _materiaSeleccionada?['id']?.toString() ?? '';
+    final claseId = _claseIdSeleccionada ?? '';
+    final grupo = _grupoSeleccionado ?? '';
+
+    final updated = await _api.actualizarAnuncio(
+      anuncioId: anuncioId,
+      titulo: titulo,
+      mensaje: mensaje,
+      tipo: _tipo,
+      materiaId: materiaId,
+      claseId: claseId,
+      grupo: grupo,
+    );
+
+    if (!mounted) return;
+    setState(() => _isPublicando = false);
+
+    if (updated != null) {
+      _showMessage('Aviso actualizado correctamente', AppColors.successDark);
+      Navigator.pop(context, true);
+    } else {
+      _showMessage(
+        _api.lastError ?? 'No se pudo actualizar el aviso',
+        AppColors.dangerRed,
+      );
+    }
+  }
+
   Future<void> _enviarNotificacionesPush({
     required String materiaId,
     String? grupo,
@@ -177,61 +344,34 @@ class _CrearAnuncioScreenState extends State<CrearAnuncioScreen> {
   }) async {
     if (!ApiConfig.enablePushNotifications) return;
     try {
-      // 1. Obtener tokens de los alumnos
       final tokens = await _api.obtenerTokensAlumnos(
         materiaId: materiaId,
         grupo: grupo,
       );
+      if (tokens.isEmpty) return;
 
-      if (tokens.isEmpty) {
-        print('⚠️ No hay tokens para enviar notificaciones');
-        return;
-      }
-
-      // 2. Obtener nombre del profesor
       final nombreProfesor = widget.nombreProfesor ?? 'Profesor';
+      final materiaNombre = _todasLasMaterias
+          ? (_materias.firstWhere(
+                  (m) => m['id'] == materiaId,
+                  orElse: () => {'nombre': 'tu materia'},
+                )['nombre'] ??
+                'tu materia')
+              .toString()
+          : (_materiaSeleccionada?['nombre'] ??
+                  widget.initialMateriaNombre ??
+                  'tu materia')
+              .toString();
 
-      // 3. Obtener nombre de la materia
-      String materiaNombre = '';
-      if (_todasLasMaterias) {
-        // Si es todas las materias, buscar el nombre
-        final materia = widget.materias.firstWhere(
-          (m) => m['id'] == materiaId,
-          orElse: () => {'nombre': 'Materia'},
-        );
-        materiaNombre = materia['nombre'] as String? ?? 'Materia';
-      } else {
-        materiaNombre = _materiaSeleccionada?['nombre'] as String? ?? 'Materia';
-      }
-
-      // 4. Determinar el mensaje de la notificación
-      String tituloNotificacion;
-      String cuerpoNotificacion;
-
-      switch (_tipo) {
-        case 'falta':
-          tituloNotificacion = '📢 Falta del profesor';
-          cuerpoNotificacion =
-              '$nombreProfesor ha registrado una falta en $materiaNombre';
-          break;
-        case 'tarea':
-          tituloNotificacion = '📝 Nueva tarea/actividad';
-          cuerpoNotificacion =
-              '$nombreProfesor ha publicado una tarea en $materiaNombre';
-          break;
-        default:
-          tituloNotificacion = '📢 Nuevo aviso';
-          cuerpoNotificacion =
-              '$nombreProfesor ha publicado un aviso en $materiaNombre';
-      }
-
-      // 5. Si hay grupo específico, agregarlo al mensaje
+      final meta = AnuncioHelper.metaFor(_tipo);
+      final tituloNotificacion = '${meta.shortLabel}: ${_tituloCtrl.text.trim()}';
+      var cuerpoNotificacion =
+          '$nombreProfesor publicó un aviso (${meta.label}) en $materiaNombre';
       if (grupo != null && grupo.isNotEmpty) {
         cuerpoNotificacion += ' (Grupo $grupo)';
       }
 
-      // 6. Enviar notificaciones
-      final enviadas = await _api.enviarNotificacionPush(
+      await _api.enviarNotificacionPush(
         titulo: tituloNotificacion,
         cuerpo: cuerpoNotificacion,
         tokens: tokens,
@@ -241,382 +381,418 @@ class _CrearAnuncioScreenState extends State<CrearAnuncioScreen> {
           'tipo': _tipo,
         },
       );
-
-      if (enviadas) {
-        print('✅ Notificaciones push enviadas a ${tokens.length} alumnos');
-      } else {
-        print('⚠️ Error enviando algunas notificaciones');
-      }
     } catch (e) {
-      print('❌ Error enviando notificaciones push: $e');
+      debugPrint('Error enviando push de anuncio: $e');
     }
   }
 
-  // ─── BUILD ────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
-      appBar: AppBar(
-        title: const Text('Nuevo aviso'),
-        backgroundColor: const Color(0xFF004C8C),
-        foregroundColor: Colors.white,
-        elevation: 0,
-        actions: [
-          // Botón de ayuda
-          IconButton(
-            icon: const Icon(Icons.help_outline),
-            onPressed: () {
-              _showHelpDialog();
-            },
-          ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── PASO 1: Tipo de aviso ──────────────────────────────────
-            _buildSectionLabel('1. Tipo de aviso'),
-            const SizedBox(height: 10),
-            Row(
-              children: _tipoInfo.entries.map((e) {
-                final selected = _tipo == e.key;
-                final info = e.value;
-                return Expanded(
-                  child: GestureDetector(
-                    onTap: () => setState(() => _tipo = e.key),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      margin: const EdgeInsets.symmetric(horizontal: 4),
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 12, horizontal: 4),
-                      decoration: BoxDecoration(
-                        color: selected
-                            ? (info['color'] as Color).withOpacity(0.10)
-                            : Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: selected
-                              ? info['color'] as Color
-                              : Colors.grey.shade300,
-                          width: selected ? 2 : 1,
-                        ),
-                      ),
-                      child: Column(
-                        children: [
-                          Icon(
-                            info['icon'] as IconData,
-                            color: selected
-                                ? info['color'] as Color
-                                : Colors.grey,
-                            size: 22,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            info['label'] as String,
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: selected
-                                  ? info['color'] as Color
-                                  : Colors.grey,
-                              fontWeight: selected
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
+    final isLockedContext = !_isEditMode &&
+        ((widget.initialMateriaId != null &&
+                widget.initialMateriaId!.isNotEmpty) ||
+            (widget.initialClaseId != null &&
+                widget.initialClaseId!.isNotEmpty));
+
+    return SessionWrapper(
+      child: Scaffold(
+        backgroundColor: AppColors.surfaceLight,
+        appBar: AppBar(
+          title: Text(_isEditMode ? 'Editar aviso' : 'Nuevo aviso'),
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.help_outline),
+              tooltip: 'Ayuda',
+              onPressed: _showHelpDialog,
             ),
-            const SizedBox(height: 24),
-
-            // ── PASO 2: Destinatarios ──────────────────────────────────
-            _buildSectionLabel('2. ¿A quién va dirigido?'),
-            const SizedBox(height: 10),
-
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade300),
-              ),
-              child: Column(
-                children: [
-                  RadioListTile<bool>(
-                    value: true,
-                    groupValue: _todasLasMaterias,
-                    onChanged: (v) {
-                      setState(() {
-                        _todasLasMaterias = true;
-                        _materiaSeleccionada = null;
-                        _grupoSeleccionado = null;
-                        _grupos = [];
-                      });
-                    },
-                    activeColor: const Color(0xFF004C8C),
-                    title: const Text(
-                      'Todos mis grupos de todas las materias',
-                      style: TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 14),
-                    ),
-                    subtitle: const Text(
-                      'El aviso llegará a todos tus alumnos',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                  ),
-                  Divider(height: 1, color: Colors.grey.shade200),
-                  RadioListTile<bool>(
-                    value: false,
-                    groupValue: _todasLasMaterias,
-                    onChanged: (v) {
-                      setState(() {
-                        _todasLasMaterias = false;
-                      });
-                    },
-                    activeColor: const Color(0xFF004C8C),
-                    title: const Text(
-                      'Una materia específica',
-                      style: TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 14),
-                    ),
-                    subtitle: const Text(
-                      'Elige la materia y el grupo',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            if (!_todasLasMaterias) ...[
-              const SizedBox(height: 16),
-              _buildSectionLabel('Materia'),
-              const SizedBox(height: 8),
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
-                child: Column(
-                  children: widget.materias.asMap().entries.map((entry) {
-                    final materia = entry.value;
-                    final isLast =
-                        entry.key == widget.materias.length - 1;
-                    final selected =
-                        _materiaSeleccionada?['id'] == materia['id'];
-
-                    return Column(
-                      children: [
-                        ListTile(
-                          onTap: () => _onMateriaChanged(materia),
-                          leading: AnimatedContainer(
-                            duration: const Duration(milliseconds: 200),
-                            width: 22,
-                            height: 22,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: selected
-                                  ? const Color(0xFF004C8C)
-                                  : Colors.transparent,
-                              border: Border.all(
-                                color: selected
-                                    ? const Color(0xFF004C8C)
-                                    : Colors.grey.shade400,
-                                width: 2,
-                              ),
-                            ),
-                            child: selected
-                                ? const Icon(Icons.check,
-                                    color: Colors.white, size: 14)
-                                : null,
-                          ),
-                          title: Text(
-                            materia['nombre'] ?? 'Sin nombre',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: selected
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
-                              color: selected
-                                  ? const Color(0xFF004C8C)
-                                  : Colors.black87,
-                            ),
-                          ),
-                        ),
-                        if (!isLast)
-                          Divider(
-                              height: 1, color: Colors.grey.shade200),
-                      ],
-                    );
-                  }).toList(),
-                ),
-              ),
-
-              if (_materiaSeleccionada != null) ...[
-                const SizedBox(height: 16),
-                _buildSectionLabel('Grupo'),
-                const SizedBox(height: 8),
-
-                if (_loadingGrupos)
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(16),
-                      child: CircularProgressIndicator(
-                          color: Color(0xFF004C8C)),
-                    ),
-                  )
-                else
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.grey.shade300),
-                    ),
-                    child: Column(
-                      children: [
-                        RadioListTile<String?>(
-                          value: null,
-                          groupValue: _grupoSeleccionado,
-                          onChanged: (v) =>
-                              setState(() => _grupoSeleccionado = v),
-                          activeColor: const Color(0xFF004C8C),
-                          title: const Text(
-                            'Todos los grupos de esta materia',
-                            style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14),
-                          ),
-                        ),
-                        if (_grupos.isNotEmpty)
-                          Divider(
-                              height: 1, color: Colors.grey.shade200),
-                        ..._grupos.asMap().entries.map((entry) {
-                          final grupo = entry.value;
-                          final isLast =
-                              entry.key == _grupos.length - 1;
-                          return Column(
-                            children: [
-                              RadioListTile<String?>(
-                                value: grupo,
-                                groupValue: _grupoSeleccionado,
-                                onChanged: (v) => setState(
-                                    () => _grupoSeleccionado = v),
-                                activeColor: const Color(0xFF004C8C),
-                                title: Text(
-                                  'Grupo $grupo',
-                                  style: const TextStyle(fontSize: 14),
-                                ),
-                              ),
-                              if (!isLast)
-                                Divider(
-                                    height: 1,
-                                    color: Colors.grey.shade200),
-                            ],
-                          );
-                        }).toList(),
-                      ],
-                    ),
-                  ),
-              ],
-            ],
-
-            const SizedBox(height: 24),
-
-            // ── PASO 3: Título y mensaje ───────────────────────────────
-            _buildSectionLabel('3. Contenido del aviso'),
-            const SizedBox(height: 10),
-
-            TextField(
-              controller: _tituloCtrl,
-              maxLength: 80,
-              decoration: _inputDecoration('Título del aviso',
-                  'Ej. No habrá clase el viernes'),
-            ),
-            const SizedBox(height: 12),
-
-            TextField(
-              controller: _mensajeCtrl,
-              maxLines: 5,
-              maxLength: 500,
-              decoration: _inputDecoration('Mensaje',
-                  'Escribe el contenido del aviso para tus alumnos...'),
-            ),
-            const SizedBox(height: 30),
-
-            _buildResumen(),
-            const SizedBox(height: 20),
-
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isPublicando ? null : _publicar,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF004C8C),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: _isPublicando
-                    ? const SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(
-                            color: Colors.white, strokeWidth: 2),
-                      )
-                    : const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.send_outlined, color: Colors.white),
-                          SizedBox(width: 8),
-                          Text(
-                            'Publicar aviso',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ],
-                      ),
-              ),
-            ),
-            const SizedBox(height: 20),
           ],
+        ),
+        body: ResponsiveContainer(
+          padding: EdgeInsets.zero,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (isLockedContext || _isEditMode) _buildContextChipBar(),
+                _buildSectionLabel('1. Tipo de aviso'),
+                const SizedBox(height: 10),
+                _buildTipoSelectorGrid(),
+                const SizedBox(height: 22),
+                _buildSectionLabel('2. Destinatarios'),
+                const SizedBox(height: 10),
+                if (!_isEditMode && _materias.isNotEmpty)
+                  _buildAlcanceCard(),
+                if (!_todasLasMaterias) ...[
+                  if (!_isEditMode && _materias.isNotEmpty)
+                    const SizedBox(height: 16),
+                  _buildMateriaYGrupoSelector(),
+                ],
+                const SizedBox(height: 22),
+                _buildSectionLabel('3. Contenido del aviso'),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _tituloCtrl,
+                  maxLength: 200,
+                  decoration: _inputDecoration(
+                    'Título del aviso',
+                    'Ej. Entrega de proyecto final / Suspensión de sesión',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _mensajeCtrl,
+                  maxLines: 5,
+                  maxLength: 2000,
+                  decoration: _inputDecoration(
+                    'Mensaje',
+                    'Escribe los detalles para tus alumnos...',
+                  ),
+                ),
+                const SizedBox(height: 20),
+                _buildResumen(),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _isPublicando ? null : _guardar,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    icon: _isPublicando
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : Icon(
+                            _isEditMode
+                                ? Icons.save_outlined
+                                : Icons.send_outlined,
+                          ),
+                    label: Text(
+                      _isPublicando
+                          ? 'Guardando...'
+                          : (_isEditMode ? 'Guardar cambios' : 'Publicar aviso'),
+                      style: const TextStyle(
+                        fontSize: 15.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
 
-  // ─── DIÁLOGO DE AYUDA ──────────────────────────────────────────────
+  Widget _buildContextChipBar() {
+    final materiaLabel =
+        (_materiaSeleccionada?['nombre'] ?? widget.initialMateriaNombre ?? '')
+            .toString();
+    final grupoLabel = _grupoSeleccionado;
+    if (materiaLabel.isEmpty && (grupoLabel == null || grupoLabel.isEmpty)) {
+      return const SizedBox.shrink();
+    }
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceSoftBlue,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.class_outlined, color: AppColors.primaryDark, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              [
+                if (materiaLabel.isNotEmpty) materiaLabel,
+                if (grupoLabel != null && grupoLabel.isNotEmpty)
+                  'Grupo $grupoLabel',
+              ].join(' · '),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppColors.primaryDark,
+                fontWeight: FontWeight.w700,
+                fontSize: 13.5,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTipoSelectorGrid() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cols = constraints.maxWidth >= 560 ? 4 : 2;
+        const spacing = 10.0;
+        final itemWidth =
+            (constraints.maxWidth - spacing * (cols - 1)) / cols;
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: AnuncioHelper.tipos.map((meta) {
+            final selected = _tipo == meta.key;
+            return SizedBox(
+              width: itemWidth,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => setState(() => _tipo = meta.key),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 12,
+                    horizontal: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? meta.color.withValues(alpha: 0.10)
+                        : Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: selected ? meta.color : Colors.grey.shade300,
+                      width: selected ? 2 : 1,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(7),
+                        decoration: BoxDecoration(
+                          color: meta.color.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(meta.icon, color: meta.color, size: 18),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          meta.label,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: selected ? meta.color : Colors.black87,
+                            fontWeight:
+                                selected ? FontWeight.w700 : FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+
+  Widget _buildAlcanceCard() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Column(
+        children: [
+          RadioListTile<bool>(
+            value: true,
+            groupValue: _todasLasMaterias,
+            onChanged: (v) {
+              setState(() {
+                _todasLasMaterias = true;
+                _materiaSeleccionada = null;
+                _grupoSeleccionado = null;
+                _claseIdSeleccionada = null;
+                _grupos = [];
+              });
+            },
+            activeColor: AppColors.primary,
+            title: const Text(
+              'Todos mis grupos de todas las materias',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+            ),
+            subtitle: const Text(
+              'Publica el aviso para todos tus alumnos activos',
+              style: TextStyle(fontSize: 12),
+            ),
+          ),
+          Divider(height: 1, color: Colors.grey.shade200),
+          RadioListTile<bool>(
+            value: false,
+            groupValue: _todasLasMaterias,
+            onChanged: (v) => setState(() => _todasLasMaterias = false),
+            activeColor: AppColors.primary,
+            title: const Text(
+              'Una materia o grupo específico',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+            ),
+            subtitle: const Text(
+              'Elige exactamente la materia y el grupo destinatario',
+              style: TextStyle(fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMateriaYGrupoSelector() {
+    if (_loadingMaterias) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: CircularProgressIndicator(color: AppColors.primary),
+        ),
+      );
+    }
+
+    if (_materias.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade300),
+        ),
+        child: Text(
+          _claseIdSeleccionada != null
+              ? 'Clase seleccionada${_grupoSeleccionado != null ? " (Grupo $_grupoSeleccionado)" : ""}.'
+              : 'No se encontraron materias disponibles.',
+          style: TextStyle(color: Colors.grey[700], fontSize: 13),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        DropdownButtonFormField<String>(
+          value: _materiaSeleccionada?['id']?.toString(),
+          isExpanded: true,
+          decoration: _inputDecoration('Materia', 'Selecciona una materia'),
+          items: _materias
+              .map(
+                (m) => DropdownMenuItem<String>(
+                  value: m['id'].toString(),
+                  child: Text(
+                    m['nombre'].toString(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              )
+              .toList(),
+          onChanged: (val) {
+            if (val == null) return;
+            final found = _materias.firstWhere(
+              (m) => m['id'].toString() == val,
+              orElse: () => _materias.first,
+            );
+            _onMateriaChanged(found);
+          },
+        ),
+        if (_materiaSeleccionada != null) ...[
+          const SizedBox(height: 14),
+          if (_loadingGrupos)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: CircularProgressIndicator(color: AppColors.primary),
+              ),
+            )
+          else
+            DropdownButtonFormField<String?>(
+              value: _grupos.any((g) => g['grupo'] == _grupoSeleccionado)
+                  ? _grupoSeleccionado
+                  : null,
+              isExpanded: true,
+              decoration: _inputDecoration('Grupo destino', 'Elige un grupo'),
+              items: [
+                const DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text(
+                    'Todos los grupos de esta materia',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                ..._grupos.map(
+                  (g) => DropdownMenuItem<String?>(
+                    value: g['grupo'].toString(),
+                    child: Text(
+                      'Grupo ${g['grupo']}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ],
+              onChanged: (val) {
+                if (val == null) {
+                  _selectGrupo(null);
+                  return;
+                }
+                final hit = _grupos.firstWhere(
+                  (g) => g['grupo'].toString() == val,
+                  orElse: () => {'grupo': val, 'clase_id': ''},
+                );
+                _selectGrupo(hit);
+              },
+            ),
+        ],
+      ],
+    );
+  }
+
   void _showHelpDialog() {
-    showDialog(
+    showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Ayuda'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Text(
+          'Ayuda sobre avisos',
+          style: TextStyle(
+            color: AppColors.primaryDark,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         content: const Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('1. Selecciona el tipo de aviso'),
+            Text('1. Elige el tipo de aviso (Aviso, Tarea, Examen o Urgente).'),
             SizedBox(height: 8),
-            Text('2. Elige los destinatarios'),
+            Text('2. Selecciona si aplica a todas tus materias, a una materia o a un grupo específico.'),
             SizedBox(height: 8),
-            Text('3. Escribe el título y mensaje'),
-            SizedBox(height: 8),
-            Text('4. Publica el aviso'),
-            SizedBox(height: 12),
-            Text(
-              'Los alumnos recibirán una notificación push en sus dispositivos.',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
+            Text('3. Podrás editar o eliminar cualquiera de tus avisos en todo momento.'),
           ],
         ),
         actions: [
@@ -629,45 +805,44 @@ class _CrearAnuncioScreenState extends State<CrearAnuncioScreen> {
     );
   }
 
-  // ─── RESUMEN ───────────────────────────────────────────────────────────
   Widget _buildResumen() {
     String destino;
     if (_todasLasMaterias) {
       destino = 'Todos mis grupos de todas las materias';
-    } else if (_materiaSeleccionada == null) {
-      return const SizedBox.shrink();
-    } else if (_grupoSeleccionado == null) {
-      destino =
-          'Todos los grupos de ${_materiaSeleccionada!['nombre']}';
+    } else if (_materiaSeleccionada != null) {
+      final nom = _materiaSeleccionada!['nombre'].toString();
+      destino = _grupoSeleccionado == null
+          ? 'Todos los grupos de $nom'
+          : 'Grupo $_grupoSeleccionado · $nom';
+    } else if (_claseIdSeleccionada != null) {
+      destino = _grupoSeleccionado != null
+          ? 'Grupo $_grupoSeleccionado'
+          : 'Clase seleccionada';
     } else {
-      destino =
-          'Grupo $_grupoSeleccionado · ${_materiaSeleccionada!['nombre']}';
+      return const SizedBox.shrink();
     }
 
-    final tipoInfo = _tipoInfo[_tipo]!;
+    final meta = AnuncioHelper.metaFor(_tipo);
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: (tipoInfo['color'] as Color).withOpacity(0.07),
+        color: meta.color.withValues(alpha: 0.07),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: (tipoInfo['color'] as Color).withOpacity(0.3),
-        ),
+        border: Border.all(color: meta.color.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
-          Icon(tipoInfo['icon'] as IconData,
-              color: tipoInfo['color'] as Color, size: 20),
+          Icon(meta.icon, color: meta.color, size: 22),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  tipoInfo['label'] as String,
+                  meta.label,
                   style: TextStyle(
-                    color: tipoInfo['color'] as Color,
+                    color: meta.color,
                     fontWeight: FontWeight.bold,
                     fontSize: 13,
                   ),
@@ -675,10 +850,7 @@ class _CrearAnuncioScreenState extends State<CrearAnuncioScreen> {
                 const SizedBox(height: 2),
                 Text(
                   destino,
-                  style: TextStyle(
-                    color: Colors.grey[700],
-                    fontSize: 12,
-                  ),
+                  style: TextStyle(color: Colors.grey[700], fontSize: 12),
                 ),
               ],
             ),
@@ -694,7 +866,7 @@ class _CrearAnuncioScreenState extends State<CrearAnuncioScreen> {
       style: const TextStyle(
         fontWeight: FontWeight.bold,
         fontSize: 14,
-        color: Colors.black87,
+        color: AppColors.primaryDark,
       ),
     );
   }
@@ -715,8 +887,7 @@ class _CrearAnuncioScreenState extends State<CrearAnuncioScreen> {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide:
-            const BorderSide(color: Color(0xFF004C8C), width: 2),
+        borderSide: const BorderSide(color: AppColors.primary, width: 2),
       ),
     );
   }

@@ -4,6 +4,7 @@ import '../service/session_service.dart';
 import '../service/session_wrapper.dart';
 import '../theme/app_colors.dart';
 import 'asistencias_materias_screen.dart';
+import 'avisos_profesor_screen.dart';
 import 'calificaciones_screens.dart';
 import 'detalle_asistencia_alumno_screen.dart';
 import 'justificantes_profesor_screen.dart';
@@ -14,12 +15,14 @@ class AlumnosMateriaScreen extends StatefulWidget {
   final String materiaId; // Representa el claseId en esta vista
   final String materiaNombre;
   final String grupo;
+  final String? materiaRealId;
 
   const AlumnosMateriaScreen({
     super.key,
     required this.materiaId,
     required this.materiaNombre,
     required this.grupo,
+    this.materiaRealId,
   });
 
   @override
@@ -326,6 +329,25 @@ class _AlumnosMateriaScreenState extends State<AlumnosMateriaScreen> {
                                 materiaNombre: widget.materiaNombre,
                                 grupo: widget.grupo,
                                 claseId: widget.materiaId,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _quickAction(
+                          icon: Icons.campaign_outlined,
+                          label: 'Avisos',
+                          color: AppColors.primary,
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => AvisosProfesorScreen(
+                                profesorId: profId,
+                                nombreProfesor: SessionService().nombre,
+                                materiaId: widget.materiaRealId,
+                                claseId: widget.materiaId,
+                                materiaNombre: widget.materiaNombre,
+                                grupo: widget.grupo,
                               ),
                             ),
                           ),
